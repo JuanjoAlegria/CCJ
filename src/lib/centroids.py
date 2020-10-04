@@ -15,11 +15,70 @@ def clip_image(img, new_size):
     return img[i_coord: i_coord + new_height, j_coord: j_coord + new_width]
 
 
-def get_nuclei_centroids(nuclei_img):
-    PIXELS_BORDER = 20
+def watershed_segmentation(original_img, bin_img):
+    """Performs image segmentation using the watershed algorithm, according to
+    https://docs.opencv.org/master/d3/db4/tutorial_py_watershed.html.
 
-    nuclei_img_expanded = cv2.copyMakeBorder(nuclei_img, PIXELS_BORDER, PIXELS_BORDER,
-                                             PIXELS_BORDER, PIXELS_BORDER, cv2.BORDER_CONSTANT, 0)
+    Args:
+        original_img: Original image, 3-channels.
+        bin_img (np.ndarray): Binary image, 1-channel, 8-bit depth (i.e., all
+            values are 0 or 255)
+
+    Returns:
+        list(np.ndarray): list of contours. Each element on the list is an
+            array of coordinates which represents a contour.
+    """
+    # Noise removal
+    kernel = np.ones((5, 5), np.uint8)
+    opening = cv2.morphologyEx(bin_img, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    # Sure background area
+    sure_bg = cv2.dilate(opening, kernel, iterations=3)
+
+    # Finding sure foreground area
+    dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
+    ret, sure_fg = cv2.threshold(dist_transform, 0.3*dist_transform.max(), 255,0)
+
+    # Finding unknown region
+    sure_fg = np.uint8(sure_fg)
+    unknown = cv2.subtract(sure_bg, sure_fg)
+
+    # Marker labelling
+    ret, markers = cv2.connectedComponents(sure_fg)
+    # Add one to all labels so that sure background is not 0, but 1
+    markers = markers+1
+    # Now, mark the region of unknown with zero
+    markers[unknown == 255] = 0
+
+    markers_watershed = cv2.watershed(original_img, markers)
+
+    contours_img = np.zeros(markers_watershed.shape, dtype='uint8')
+    contours_img[markers_watershed == -1] = 255
+
+    contours, _ = cv2.findContours(contours_img, cv2.RETR_LIST,
+                                   cv2.CHAIN_APPROX_NONE)
+
+    return contours
+
+
+def get_nuclei_centroids(nuclei_img):
+    """Given a nuclei image, returns a list with the centroid of each nucleus.
+
+    Args:
+        nuclei_img (np.array): Nuclei image, in BGR format.
+
+    Returns:
+        np.ndarray: Array with the coordinates of the centroids of the nuclei.
+            Before returning, the list of centroids is filtered, in order to}
+            avoid duplicates.
+    """
+
+    pixels_border = 20
+
+    nuclei_img_expanded = cv2.copyMakeBorder(nuclei_img,
+                                             pixels_border, pixels_border,
+                                             pixels_border, pixels_border,
+                                             cv2.BORDER_CONSTANT, 0)
 
     nuclei_img_gray = cv2.cvtColor(nuclei_img_expanded, cv2.COLOR_BGR2GRAY)
 
@@ -32,49 +91,22 @@ def get_nuclei_centroids(nuclei_img):
     blur_img = cv2.GaussianBlur(contrast_img, (9,9),0)
 
     # Thresholding (Otsu)
-    ret, thresh_img = cv2.threshold(blur_img, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    
-    # Noise removal
-    kernel = np.ones((5,5),np.uint8)
-    opening = cv2.morphologyEx(thresh_img, cv2.MORPH_OPEN, kernel, iterations=1)
+    _, thresh_img = cv2.threshold(blur_img, 0, 255,
+                                    cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    # Sure background area
-    sure_bg = cv2.dilate(opening, kernel, iterations=3)
-
-    # Finding sure foreground area
-    dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
-    ret, sure_fg = cv2.threshold(dist_transform, 0.3*dist_transform.max(), 255,0)
-
-    # Finding unknown region
-    sure_fg = np.uint8(sure_fg)
-    unknown = cv2.subtract(sure_bg, sure_fg)
-    
-    # Marker labelling
-    ret, markers = cv2.connectedComponents(sure_fg)
-    # Add one to all labels so that sure background is not 0, but 1
-    markers = markers+1
-    # Now, mark the region of unknown with zero
-    markers[unknown==255] = 0
-    
-    markers_watershed = cv2.watershed(nuclei_img_expanded, markers)
-    
-    contours_img = np.zeros(markers_watershed.shape, dtype='uint8')
-    contours_img[markers_watershed == -1] = 255
-
-    contours, hierarchy = cv2.findContours(contours_img, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)    
-    
-    centroids = []
-
+    contours = watershed_segmentation(nuclei_img_expanded, thresh_img)
     contours = contours[:-2]
-    for c in contours:
-        moments = cv2.moments(c)
+
+    centroids = []
+    for contour in contours:
+        moments = cv2.moments(contour)
         area = moments['m00']
-        cX = int(moments['m10'] / area) - PIXELS_BORDER
-        cY = int(moments['m01'] / area) - PIXELS_BORDER
-        centroids.append((cX, cY))
+        x_coord = int(moments['m10'] / area) - pixels_border
+        y_coord = int(moments['m01'] / area) - pixels_border
+        centroids.append((x_coord, y_coord))
 
     centroids = np.array(centroids, dtype=int)
-    
+
     return np.unique(centroids, axis=0)
 
 def merge_centroids(centroids, rows_to_fuse):
@@ -82,7 +114,7 @@ def merge_centroids(centroids, rows_to_fuse):
         return centroids
     for rows in rows_to_fuse:
         centroids[rows[0]] = (centroids[rows[0]] + centroids[rows[1]]) / 2
-    
+
     mask = np.ones(len(centroids), dtype=bool)
     mask[rows_to_fuse[:, 1]] = False
     return centroids[mask]
@@ -96,8 +128,8 @@ def remove_close_centroids(centroids, radio=10):
 
 def get_edges_indexes_delaunay(delaunay_tri):
     '''Gets all the unique edges in the Delaunay triangulation.
-    
-    Returns the indexes of the points that forms each edge. The indexes are relative to 
+
+    Returns the indexes of the points that forms each edge. The indexes are relative to
     the list of points stored in the Delaunay triangulation.
     '''
     # We get the references to the points that forms every edge
@@ -121,7 +153,7 @@ def get_edges_indexes_delaunay(delaunay_tri):
     return edges_refs
 
 def get_indexes_false_centroids(segments, edges_refs, bin_img):
-    '''Returns the indexes of those centroids that have at least one adjacent 
+    '''Returns the indexes of those centroids that have at least one adjacent
     centroid with no cell-cell junction in between.
     '''
     # We check that every segment contains at least one white pixel
@@ -142,7 +174,7 @@ def clean_centroids_delaunay(centroids, bin_img):
 
     # Now we get the real coords that forms every edge, not just the references
     edges = centroids[edges_refs]
-    
+
     # We get the actual segments. Not just the two points, but the whole line
     interp_segments = []
     for edge in edges:
@@ -151,7 +183,7 @@ def clean_centroids_delaunay(centroids, bin_img):
     false_centroids_indexes = get_indexes_false_centroids(interp_segments, edges_refs, bin_img)
     merged_centroids = merge_centroids(centroids, false_centroids_indexes)
     return merged_centroids
-    
+
 
 def remove_white_centroids(centroids, bin_img):
     mask = np.ones(len(centroids), dtype=bool)
