@@ -37,7 +37,8 @@ def watershed_segmentation(original_img, bin_img):
 
     # Finding sure foreground area
     dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
-    ret, sure_fg = cv2.threshold(dist_transform, 0.3*dist_transform.max(), 255,0)
+    ret, sure_fg = cv2.threshold(dist_transform,
+                                0.3 * dist_transform.max(), 255, 0)
 
     # Finding unknown region
     sure_fg = np.uint8(sure_fg)
@@ -59,7 +60,6 @@ def watershed_segmentation(original_img, bin_img):
                                    cv2.CHAIN_APPROX_NONE)
 
     return contours
-
 
 def get_nuclei_centroids(nuclei_img):
     """Given a nuclei image, returns a list with the centroid of each nucleus.
@@ -110,6 +110,20 @@ def get_nuclei_centroids(nuclei_img):
     return np.unique(centroids, axis=0)
 
 def merge_centroids(centroids, rows_to_fuse):
+    """Given a list of centroids and a list of pairs of rows, merges those rows
+    in the list of centroids.
+
+    Args:
+        centroids (np.ndarray, shape=(n_centroids, 2)): Coordinates of nuclei
+            centroids.
+        rows_to_fuse (np.ndarray, shape=(n_merge, 2)): List of pairs of
+            centroids that should be merged. Each point in rows_to_fuse is a
+            pair of indexes of rows in centroids that should be merged.
+
+    Returns:
+        np.ndarray, shape=(n_centroids - n_merge, 2): Coordinates of nuclei
+            centroids after merging.
+    """
     if len(rows_to_fuse) == 0:
         return centroids
     for rows in rows_to_fuse:
@@ -120,18 +134,35 @@ def merge_centroids(centroids, rows_to_fuse):
     return centroids[mask]
 
 def remove_close_centroids(centroids, radio=10):
+    """Remove those centroids that are too close to each other.
+
+    Args:
+        centroids (np.ndarray, shape=(n_centroids, 2)): Coordinates of nuclei
+            centroids.
+        radio (int, optional): Minimum distance required between each pair of
+            centroids. Defaults to 10.
+
+    Returns:
+        np.ndarray: List of coordinates after removal of too close centroids.
+    """
     kdtree = cKDTree(centroids)
     rows_to_fuse = np.array(list(kdtree.query_pairs(r=radio)))
     merged_centroids = merge_centroids(centroids, rows_to_fuse)
     return merged_centroids
 
-
 def get_edges_indexes_delaunay(delaunay_tri):
-    '''Gets all the unique edges in the Delaunay triangulation.
+    """Gets all the unique edges in the Delaunay triangulation.
 
-    Returns the indexes of the points that forms each edge. The indexes are relative to
-    the list of points stored in the Delaunay triangulation.
-    '''
+    Returns the indexes of the points that forms each edge. The indexes are
+    relative to the list of points stored in the Delaunay triangulation.
+
+    Args:
+        delaunay_tri (scipy.spatial.qhull.Delaunay): Delaunay triangulation.
+
+    Returns:
+        np.ndarray, shape=(n_edges,2): List of unique edges in the
+            triangulation.
+    """
     # We get the references to the points that forms every edge
     edges_refs = []
     for simplex in delaunay_tri.simplices:
@@ -153,21 +184,59 @@ def get_edges_indexes_delaunay(delaunay_tri):
     return edges_refs
 
 def get_indexes_false_centroids(segments, edges_refs, bin_img):
-    '''Returns the indexes of those centroids that have at least one adjacent
+    """Returns the indexes of those centroids that have at least one adjacent
     centroid with no cell-cell junction in between.
-    '''
-    # We check that every segment contains at least one white pixel
-    # If it doesn't, it means that there is no cell-cell junction between the two centroids
+
+    Each segment joins two adjacent nuclei centroids. So for each segment, we
+    check that it contains at least one white pixel. If it doesn't, it means
+    that there is no cell-cell junction between the two centroids, and then
+    those two centroids should be merged into one.
+
+    Args:
+        segments (list[(np.ndarray, np.ndarray)], length=n_edges): List of
+            segments joining two adjacent centroids. Each segment is represented
+            by 2 numpy arrays of equal length, namely rows_idx and cols_idx,
+            such that bin_img[rows_idx, cols_idx] returns the pixels that
+            belongs to the segment.
+        edges_refs (np.ndarray, shape=(n_edges,2)): List of unique edges in the
+            triangulation.
+        bin_img (np.ndarray):  Binary image, 3-channel, 8-bit depth (i.e., all
+            values are 0 or 255)
+
+    Returns:
+        np.ndarray, shape=(n_merge, 2). List of pairs of centroids indexes that
+            should be merged because there is no cell-cell junction between
+            them.
+    """
+
     false_centroids_indexes = []
     for index, segment in enumerate(segments):
-        rr, cc = segment
-        segment_img = bin_img[cc, rr]
+        rows_idx, cols_idx = segment
+        segment_img = bin_img[cols_idx, rows_idx]
         if not np.any(segment_img == 255):
             false_centroids_indexes.append(edges_refs[index])
     return np.array(false_centroids_indexes)
 
 
 def clean_centroids_delaunay(centroids, bin_img):
+    """Given a list of centroids that represents the nuclei and a segmented
+    image of the cell-cell junction, removes those centroids that belong to the
+    same cell.
+
+    To do that, we compute the Delaunay triangulation over the centroids, and
+    then we merge those pairs of centroids where there is no cell-cell junction
+    between them.
+
+    Args:
+        centroids (np.ndarray, shape=(n_centroids, 2)): Coordinates of nuclei
+            centroids.
+        bin_img (np.ndarray):  Binary image, 3-channel, 8-bit depth (i.e., all
+            values are 0 or 255)
+
+    Returns:
+        np.ndarray, shape=(<=n_centroids, 2): Coordinates of nuclei
+            centroids after merging the corresponding points.
+    """
     # Delaunay triangulation
     tri = Delaunay(centroids)
     edges_refs = get_edges_indexes_delaunay(tri)
@@ -178,14 +247,28 @@ def clean_centroids_delaunay(centroids, bin_img):
     # We get the actual segments. Not just the two points, but the whole line
     interp_segments = []
     for edge in edges:
-        rr, cc = line(edge[0,0], edge[0,1], edge[1,0], edge[1,1])
-        interp_segments.append((rr,cc))
-    false_centroids_indexes = get_indexes_false_centroids(interp_segments, edges_refs, bin_img)
+        rows, columns = line(edge[0, 0], edge[0, 1], edge[1, 0], edge[1, 1])
+        interp_segments.append((rows, columns))
+    false_centroids_indexes = get_indexes_false_centroids(interp_segments,
+                                                          edges_refs, bin_img)
     merged_centroids = merge_centroids(centroids, false_centroids_indexes)
     return merged_centroids
 
 
 def remove_white_centroids(centroids, bin_img):
+    """Remove those centroids that are in cell-cell junction, according to
+    bin_img.
+
+    Args:
+        centroids (np.ndarray, shape=(n_centroids, 2)): Coordinates of
+            nuclei centroids.
+        bin_img (np.ndarray):  Binary image, 3-channel, 8-bit depth (i.e., all
+            values are 0 or 255)
+
+    Returns:
+        np.ndarray, shape=(<=n_centroids, 2): Coordinates of nuclei
+            centroids after merging the corresponding points.
+    """
     mask = np.ones(len(centroids), dtype=bool)
     for index, centroid in enumerate(centroids):
         if np.all(bin_img[centroid[1], centroid[0]] == (255, 255, 255)):
@@ -194,27 +277,29 @@ def remove_white_centroids(centroids, bin_img):
     return cleaned_centroids
 
 
-def clean_centroids(centroids, bin_img, n_iter=3, radio=10, verbose=False):
-    def __print(text):
-        if verbose:
-            print(text)
+def clean_centroids(centroids, bin_img, n_iter=3, radio=10):
+    """Clean the list of centroids, removing those who
 
+    Args:
+        centroids ([type]): [description]
+        bin_img ([type]): [description]
+        n_iter (int, optional): [description]. Defaults to 3.
+        radio (int, optional): [description]. Defaults to 10.
+
+    Returns:
+        [type]: [description]
+    """
     for index in range(n_iter):
-        __print("########## Iteration {} ########## ".format(index+1))
-        __print("N centroids: {}".format(len(centroids)))
+        print("########## Iteration {} ########## ".format(index+1))
+        print("N centroids: {}".format(len(centroids)))
         centroids = remove_white_centroids(centroids, bin_img)
-        __print("N centroids after removing centroids in white space: {}".format(len(centroids)))
+        print("N centroids after removing centroids in white space: {}".format(len(centroids)))
         centroids = remove_close_centroids(centroids, radio)
-        __print("N centroids after removing close points: {}".format(len(centroids)))
+        print("N centroids after removing close points: {}".format(len(centroids)))
         centroids = clean_centroids_delaunay(centroids, bin_img)
-        __print("N centroids after Delaunay analysis: {}".format(len(centroids)))
+        print("N centroids after Delaunay analysis: {}".format(len(centroids)))
     return centroids
 
-def draw_centroids(centroids, img, color=(255,0,0), radio=5):
-    new_img = np.copy(img)
-    for x, y in centroids:
-        cv2.circle(new_img, (x, y), radio, color, -1)
-    return new_img
 
 def get_moments(contours):
     moments = []
@@ -243,23 +328,40 @@ def get_moments_centroids(centroids, contours, img_template):
         ret.append(moments[index])
     return ret
 
-def remove_outliers_cells(centroids, moments):
+def remove_outliers_cells(centroids, moments, std_factor=2.5):
+    """Given a list of centroids and its moments, removes those centroids whose
+    area too big.
+
+    In order to perform this task, we compute the mean and std of all the areas,
+    and then we remove those centroids where (area - mean) > std_factor*std.
+
+    Args:
+        centroids (np.ndarray, shape=(n_centroids, 2)): Coordinates of nuclei
+            centroids.
+        moments (list[dict[str -> float]]): list of moments for each nucleus.
+            Each element in the list is a dict with the moments of the
+            corresponding nucleus, as returned by cv2.moments(nucleus_contour).
+        std_factor (float, optional): Tolerance to outliers. Defaults to 2.5.
+
+    Returns:
+        (np.ndarray, list[dict[str -> float]]): filtered centroids and moments
+    """
     moments_np = np.array(moments)
     areas = np.array([m['m00'] for m in moments])
     mask = np.ones(len(centroids), dtype=bool)
     mean, std = areas.mean(), areas.std()
-    for index, (centroid, area) in enumerate(zip(centroids, areas)):
-        if abs(area - mean) > 2.5*std:
+    for index, (_, area) in enumerate(zip(centroids, areas)):
+        if abs(area - mean) > std_factor*std:
             mask[index] = False
     return centroids[mask], moments_np[mask]
 
 def get_moments_cells(centroids, bin_img, remove_outliers=True):
     inv_img = cv2.bitwise_not(bin_img)
     inv_img = cv2.cvtColor(inv_img, cv2.COLOR_BGR2GRAY)
-    contours, hierarchy = cv2.findContours(inv_img, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+    contours, _ = cv2.findContours(inv_img, cv2.RETR_TREE,
+                                   cv2.CHAIN_APPROX_NONE)
     moments = get_moments_centroids(centroids, contours, bin_img)
     if remove_outliers:
         return remove_outliers_cells(centroids, moments)
     else:
         return centroids, moments
-
