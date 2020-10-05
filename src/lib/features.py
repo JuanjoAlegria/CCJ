@@ -26,9 +26,8 @@ def window_stdev(img, window_size):
     return np.sqrt(variance)
 
 def voronoi_approx_statistics(img, raw_values=False):
-    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    distance = ndi.distance_transform_edt(img_gray)
-    local_maxi = peak_local_max(-distance, indices=False, footprint=np.ones((3, 3)), labels=img_gray)
+    distance = ndi.distance_transform_edt(img)
+    local_maxi = peak_local_max(-distance, indices=False, footprint=np.ones((3, 3)), labels=imgx)
     markers = ndi.label(local_maxi)[0]
     labels = watershed(distance, markers, watershed_line=True)
     mask = labels == 0
@@ -41,8 +40,7 @@ def voronoi_approx_statistics(img, raw_values=False):
 
 
 def medial_axis_stadistics(img, raw_values=False):
-    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    skel, distance = medial_axis(img_gray, return_distance=True)
+    skel, distance = medial_axis(img, return_distance=True)
     dist_on_skel = distance * skel
     non_zero = dist_on_skel[np.where(dist_on_skel != 0)]
     if raw_values:
@@ -66,7 +64,6 @@ def entropy_filter_statistics(img, jbin_img, raw_values=False):
     return non_zero.mean(), non_zero.std()
 
 def get_skeleton_data(sk_img):
-    # sk_img_gray = cv2.cvtColor(sk_img, cv2.COLOR_BGR2GRAY)
     pixel_graph, coordinates, degrees = skeleton_to_csgraph(sk_img)
     branch_data = summarize(Skeleton(sk_img))
     return degrees, branch_data
@@ -187,13 +184,13 @@ def get_features(original_img, nuclei_img, jbin_img, jsk_img):
 
     #area_ft = get_area_features(nuclei_img_bgr, jbin_img)
 
-    sk_ft = get_skeleton_features(jsk_img)
-    # bt_ft = get_branch_thickness_features(jbin_img)
+    #sk_ft = get_skeleton_features(jsk_img)
+    bt_ft = get_branch_thickness_features(jbin_img)
     # tx_ft = get_texture_features(original_img, jbin_img)
 
     #features.update(area_ft)
-    features.update(sk_ft)
-    # features.update(bt_ft)
+    #features.update(sk_ft)
+    features.update(bt_ft)
     # features.update(tx_ft)
 
     return features
