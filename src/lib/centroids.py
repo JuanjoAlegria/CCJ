@@ -5,24 +5,14 @@ from skimage.draw import line
 from scipy.spatial import Delaunay, cKDTree, Voronoi,  voronoi_plot_2d
 
 
-def clip_image(img, new_size):
-    # It is assumed that there is a uniform padding around the image, so the
-    # returned image is clipped at the center.
-    height, width = img.shape[:2]
-    new_height, new_width = new_size
-    i_coord = (height - new_height) // 2
-    j_coord = (width - new_width) // 2
-    return img[i_coord: i_coord + new_height, j_coord: j_coord + new_width]
-
-
 def watershed_segmentation(original_img, bin_img):
     """Performs image segmentation using the watershed algorithm, according to
     https://docs.opencv.org/master/d3/db4/tutorial_py_watershed.html.
 
     Args:
-        original_img: Original image, 3-channels.
-        bin_img (np.ndarray): Binary image, 1-channel, 8-bit depth (i.e., all
-            values are 0 or 255)
+        original_img (np.ndarray, shape=(n,n,3), dtype=np.uint8): Original image
+            to be segmented.
+        bin_img (np.ndarray, shape=(n,n), dtype=np.uint8): Binarized image.
 
     Returns:
         list(np.ndarray): list of contours. Each element on the list is an
@@ -65,12 +55,12 @@ def get_nuclei_centroids(nuclei_img):
     """Given a nuclei image, returns a list with the centroid of each nucleus.
 
     Args:
-        nuclei_img (np.array): Nuclei image, in BGR format.
+        nuclei_img (np.ndarray, shape=(n,n,3), dtype=np.uint8): Nuclei image.
 
     Returns:
-        np.ndarray: Array with the coordinates of the centroids of the nuclei.
-            Before returning, the list of centroids is filtered, in order to}
-            avoid duplicates.
+        np.ndarray, shape=(n_centroids, 2): Array with the coordinates of the
+            centroids of the nuclei. Before returning, the list of centroids is
+            filtered, in order to avoid duplicates.
     """
 
     pixels_border = 20
@@ -82,7 +72,8 @@ def get_nuclei_centroids(nuclei_img):
 
     nuclei_img_gray = cv2.cvtColor(nuclei_img_expanded, cv2.COLOR_BGR2GRAY)
 
-    # Enhance contrast (CLAHE - Contrast Limited Adaptive Histogram Equalization)
+    # Enhance contrast (CLAHE - Contrast Limited Adaptive Histogram
+    # Equalization)
 
     clahe = cv2.createCLAHE(clipLimit=5.0)
     contrast_img = clahe.apply(nuclei_img_gray)
@@ -200,8 +191,8 @@ def get_indexes_false_centroids(segments, edges_refs, bin_img):
             belongs to the segment.
         edges_refs (np.ndarray, shape=(n_edges,2)): List of unique edges in the
             triangulation.
-        bin_img (np.ndarray):  Binary image, 3-channel, 8-bit depth (i.e., all
-            values are 0 or 255)
+        bin_img (np.ndarray, shape=(n,n), dtype=np.uint8): Binarized image of
+            the cell-cell junction, one channel.
 
     Returns:
         np.ndarray, shape=(n_merge, 2). List of pairs of centroids indexes that
@@ -217,7 +208,6 @@ def get_indexes_false_centroids(segments, edges_refs, bin_img):
             false_centroids_indexes.append(edges_refs[index])
     return np.array(false_centroids_indexes)
 
-
 def clean_centroids_delaunay(centroids, bin_img):
     """Given a list of centroids that represents the nuclei and a segmented
     image of the cell-cell junction, removes those centroids that belong to the
@@ -230,8 +220,8 @@ def clean_centroids_delaunay(centroids, bin_img):
     Args:
         centroids (np.ndarray, shape=(n_centroids, 2)): Coordinates of nuclei
             centroids.
-        bin_img (np.ndarray):  Binary image, 3-channel, 8-bit depth (i.e., all
-            values are 0 or 255)
+        bin_img (np.ndarray, shape=(n,n), dtype=np.uint8): Binarized image of
+            the cell-cell junction, one channel.
 
     Returns:
         np.ndarray, shape=(<=n_centroids, 2): Coordinates of nuclei
@@ -254,7 +244,6 @@ def clean_centroids_delaunay(centroids, bin_img):
     merged_centroids = merge_centroids(centroids, false_centroids_indexes)
     return merged_centroids
 
-
 def remove_white_centroids(centroids, bin_img):
     """Remove those centroids that are in cell-cell junction, according to
     bin_img.
@@ -262,8 +251,8 @@ def remove_white_centroids(centroids, bin_img):
     Args:
         centroids (np.ndarray, shape=(n_centroids, 2)): Coordinates of
             nuclei centroids.
-        bin_img (np.ndarray):  Binary image, 3-channel, 8-bit depth (i.e., all
-            values are 0 or 255)
+        bin_img (np.ndarray, shape=(n,n), dtype=np.uint8): Binarized image of
+            the cell-cell junction, one channel.
 
     Returns:
         np.ndarray, shape=(<=n_centroids, 2): Coordinates of nuclei
@@ -271,23 +260,29 @@ def remove_white_centroids(centroids, bin_img):
     """
     mask = np.ones(len(centroids), dtype=bool)
     for index, centroid in enumerate(centroids):
-        if np.all(bin_img[centroid[1], centroid[0]] == (255, 255, 255)):
+        if bin_img[centroid[1], centroid[0]] == 255:
             mask[index] = False
     cleaned_centroids = centroids[mask]
     return cleaned_centroids
 
-
 def clean_centroids(centroids, bin_img, n_iter=3, radio=10):
-    """Clean the list of centroids, removing those who
+    """Clean the list of centroids, removing those that fall on white area on
+    bin_img, merging the pairs that are too close to each other and merging
+    the pairs that fall under the same black area on bin_img, using Delaunay
+    triangulation.
 
     Args:
-        centroids ([type]): [description]
-        bin_img ([type]): [description]
-        n_iter (int, optional): [description]. Defaults to 3.
-        radio (int, optional): [description]. Defaults to 10.
+        centroids (np.ndarray, shape=(n_centroids, 2)): Coordinates of nuclei
+            centroids.
+        bin_img (np.ndarray, shape=(n,n), dtype=np.uint8): Binarized image of
+            the cell-cell junction, one channel.
+        n_iter (int, optional): Number of iterations to perform. Defaults to 3.
+        radio (int, optional): Minimum required distance between centroids.
+            Defaults to 10.
 
     Returns:
-        [type]: [description]
+        np.ndarray, shape=(<=n_centroids, 2): Coordinates of nuclei centroids,
+            after cleaning.
     """
     for index in range(n_iter):
         print("########## Iteration {} ########## ".format(index+1))
@@ -302,26 +297,35 @@ def clean_centroids(centroids, bin_img, n_iter=3, radio=10):
 
 
 def get_moments(contours):
+    """[summary]
+
+    Args:
+        contours ([type]): [description]
+
+    Returns:
+        [type]: [description]
+    """
+    # import pdb; pdb.set_trace()
     moments = []
     for c in contours:
         m = cv2.moments(c)
         moments.append(m)
     return moments
 
-def get_colored_contours(contours, img_template):
+def get_colored_contours(contours, img_shape):
     colors = np.random.randint(0, 256, (len(contours), 3)).astype('uint8')
     colors_dict = {tuple(colors[index]): index for index in range(len(colors))}
 
-    contours_color = np.zeros_like(img_template)
+    contours_color = np.zeros((img_shape[0], img_shape[1], 3))
     for contour, color in zip(contours, colors):
         color_t = tuple(int(c) for c in color)
         cv2.fillPoly(contours_color, [contour], color=color_t)
     return contours_color, colors_dict
 
-def get_moments_centroids(centroids, contours, img_template):
+def get_moments_centroids(centroids, contours, img_shape):
     moments = get_moments(contours)
     ret = []
-    colored_img, colors_dict = get_colored_contours(contours, img_template)
+    colored_img, colors_dict = get_colored_contours(contours, img_shape)
     for centroid in centroids:
         color = tuple(colored_img[centroid[1], centroid[0]])
         index = colors_dict[color]
@@ -357,10 +361,9 @@ def remove_outliers_cells(centroids, moments, std_factor=2.5):
 
 def get_moments_cells(centroids, bin_img, remove_outliers=True):
     inv_img = cv2.bitwise_not(bin_img)
-    inv_img = cv2.cvtColor(inv_img, cv2.COLOR_BGR2GRAY)
     contours, _ = cv2.findContours(inv_img, cv2.RETR_TREE,
                                    cv2.CHAIN_APPROX_NONE)
-    moments = get_moments_centroids(centroids, contours, bin_img)
+    moments = get_moments_centroids(centroids, contours, bin_img.shape)
     if remove_outliers:
         return remove_outliers_cells(centroids, moments)
     else:
