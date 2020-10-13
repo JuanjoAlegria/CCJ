@@ -41,21 +41,56 @@ test_environment:
 
 folders_names = first NegsiRNA Test
 
+
+branch_thickness_voronoi:
+	$(python_interpreter) -m src.scripts.compute_branch_thickness \
+		--imgs_dir data/raw/images \
+		--results_base_dir data/interim \
+		--algorithm voronoi
+
+branch_thickness_medial_axis:
+	$(python_interpreter) -m src.scripts.compute_branch_thickness \
+		--imgs_dir data/raw/images \
+		--results_base_dir data/interim \
+		--algorithm medial_axis
+
+texture_entropy_filter:
+	$(python_interpreter) -m src.scripts.compute_texture \
+		--imgs_dir data/raw/images \
+		--results_base_dir data/interim \
+		--algorithm entropy
+
+texture_std_filter:
+	$(python_interpreter) -m src.scripts.compute_texture \
+		--imgs_dir data/raw/images \
+		--results_base_dir data/interim \
+		--algorithm std
+
+skeleton_data:
+	$(python_interpreter) -m src.scripts.compute_skeleton_data \
+		--imgs_dir data/raw/images \
+		--results_base_dir data/interim
+
+centroids_moments:
+	$(python_interpreter) -m src.scripts.compute_centroids_moments \
+		--imgs_dir data/raw/images \
+		--results_base_dir data/interim
+
 get_features:
-	for folder_name in $(folders_names); do \
-		$(python_interpreter) -m src.scripts.get_features \
-			--imgs_dir data/$${folder_name} \
-			--save_path results/$${folder_name}_results.csv ; \
-	done;
-
-
+branch_thickness_voronoi
+branch_thickness_medial_axis
+texture_entropy_filter
+texture_std_filter
+skeleton_data
+centroids_moments
+	$(python_interpreter) -m src.scripts.get_features \
+		--raw_dir data/raw \
+		--interim_dir data/interim \
+		--save_path results/features_results.csv
 
 clear_data:
-	rm -r data/$(cancer_type)/raw/annotations ||:
-	rm -r data/$(cancer_type)/interim ||:
-	rm -r data/$(cancer_type)/annotations_details.csv ||:
-	rm -r data/$(cancer_type)/annotations_summary.csv ||:
-	mkdir data/$(cancer_type)/interim ||:
+	rm -r data/interim ||:
+	mkdir data/interim ||:
 
 #################################################################################
 # Self Documenting Commands                                                     #
