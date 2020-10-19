@@ -2,28 +2,23 @@
 
 import os
 import argparse
-import tifffile
-from ..lib import utils
-from ..lib import image_processing as iputils
+from ...lib import utils
+from ...lib import centroids as centutils
+
 
 def main(imgs_dir, results_base_dir):
-    degrees_dir = os.path.join(results_base_dir, 'images', 'skeleton_degrees')
-    dfs_dir = os.path.join(results_base_dir, 'dataframes', 'skeleton_data')
-    os.makedirs(degrees_dir, exist_ok=True)
+    dfs_dir = os.path.join(results_base_dir, 'dataframes', 'centroids_data')
     os.makedirs(dfs_dir, exist_ok=True)
 
     for fullname in os.listdir(os.path.join(imgs_dir, 'CCJ')):
         if os.path.splitext(fullname)[1] != '.tif':
             continue
         img_name = fullname[:-5]
-        _, _, _, sk_img = utils.load_images(imgs_dir, img_name)
-        _, _, degrees, branch_data = iputils.skeleton_data(sk_img)
-
-        degrees_path = os.path.join(degrees_dir, f'{img_name}.tif')
+        nuclei_img, _, seg_img, _ = utils.load_images(imgs_dir, img_name)
+        nuclei_img = utils.convert_16_gray_to_8_bgr(nuclei_img)
+        centroids_df = centutils.get_centroids_and_moments(nuclei_img, seg_img)
         df_path = os.path.join(dfs_dir, f'{img_name}.csv')
-        degrees_8 = degrees.astype('uint8')
-        tifffile.imsave(degrees_path, degrees_8)
-        branch_data.to_csv(df_path)
+        centroids_df.to_csv(df_path)
         print(f'Processed image {img_name}')
 
 
@@ -41,12 +36,8 @@ if __name__ == "__main__":
         '--results_base_dir',
         type=str,
         help="""Base dir for the results. The results will actually be stored in
-        two subfolders:
-            - results_base_dir/images/skeleton_degrees: images where each point
-            of the skeleton has its degree, and
-            - results_base_dir/dataframes/skeleton_data: dataframes with the
-            summarized information of the skeleton
-            """,
+        the subfolder results_base_dir/dataframes/centroids_data.
+        """,
         required=True
     )
     FLAGS = PARSER.parse_args()

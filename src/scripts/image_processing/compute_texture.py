@@ -1,28 +1,26 @@
-"""Script to process the images and compute the thickness of the branches"""
+"""Script to process the images and compute the texture of the CCJ"""
 
 import os
 import argparse
 import tifffile
-from ..lib import utils
-from ..lib import image_processing as iputils
-
+from ...lib import utils
+from ...lib import image_processing as iputils
 
 def main(imgs_dir, results_base_dir, algorithm):
     results_dir = os.path.join(results_base_dir,
                                'images',
-                               f'branch_thickness_{algorithm}')
+                               f'texture_{algorithm}_filter')
     os.makedirs(results_dir, exist_ok=True)
     functions_map = {
-        "voronoi": iputils.branch_thickness_voronoi,
-        "medial_axis": iputils.branch_thickness_medial_axis
+        "std": iputils.texture_std_filter,
+        "entropy": iputils.texture_entropy_filter
     }
-
     for fullname in os.listdir(os.path.join(imgs_dir, 'CCJ')):
         if os.path.splitext(fullname)[1] != '.tif':
             continue
         img_name = fullname[:-5]
-        _, _, seg_img, _ = utils.load_images(imgs_dir, img_name)
-        processed = functions_map[algorithm](seg_img)
+        _, ccj_img, seg_img, _ = utils.load_images(imgs_dir, img_name)
+        processed = functions_map[algorithm](ccj_img, seg_img)
         processed_path = os.path.join(results_dir, f'{img_name}.tif')
         processed_32 = processed.astype('float32')
         tifffile.imsave(processed_path, processed_32)
@@ -43,14 +41,14 @@ if __name__ == "__main__":
         '--results_base_dir',
         type=str,
         help="""Base dir for the results. The results will actually be stored in
-        the subfolder results_base_dir/images/branch_thickness_{algorithm}.""",
+        the subfolder results_base_dir/images/texture_{algorithm}_filter.""",
         required=True
     )
     PARSER.add_argument(
         '--algorithm',
         type=str,
-        help="Algorithm to compute the thickness of the branches",
-        choices=['voronoi', 'medial_axis'],
+        help="Algorithm to compute the texture of the CCJ",
+        choices=['std', 'entropy'],
         required=True
     )
     FLAGS = PARSER.parse_args()
