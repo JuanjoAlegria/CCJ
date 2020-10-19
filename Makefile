@@ -39,35 +39,32 @@ test_environment:
 # PROJECT RULES                                                                 #
 #################################################################################
 
-folders_names = first NegsiRNA Test
-
-
 branch_thickness_voronoi:
-	$(python_interpreter) -m src.scripts.compute_branch_thickness \
+	$(python_interpreter) -m src.scripts.image_processing.compute_branch_thickness \
 		--imgs_dir data/raw/images \
 		--results_base_dir data/interim \
 		--algorithm voronoi
 
 branch_thickness_medial_axis:
-	$(python_interpreter) -m src.scripts.compute_branch_thickness \
+	$(python_interpreter) -m src.scripts.image_processing.compute_branch_thickness \
 		--imgs_dir data/raw/images \
 		--results_base_dir data/interim \
 		--algorithm medial_axis
 
 texture_entropy_filter:
-	$(python_interpreter) -m src.scripts.compute_texture \
+	$(python_interpreter) -m src.scripts.image_processing.compute_texture \
 		--imgs_dir data/raw/images \
 		--results_base_dir data/interim \
 		--algorithm entropy
 
 texture_std_filter:
-	$(python_interpreter) -m src.scripts.compute_texture \
+	$(python_interpreter) -m src.scripts.image_processing.compute_texture \
 		--imgs_dir data/raw/images \
 		--results_base_dir data/interim \
 		--algorithm std
 
 skeleton_data:
-	$(python_interpreter) -m src.scripts.compute_skeleton_data \
+	$(python_interpreter) -m src.scripts.image_processing.compute_skeleton_data \
 		--imgs_dir data/raw/images \
 		--results_base_dir data/interim
 
@@ -76,12 +73,12 @@ centroids_moments:
 		--imgs_dir data/raw/images \
 		--results_base_dir data/interim
 
-get_features:
-branch_thickness_voronoi
-branch_thickness_medial_axis
-texture_entropy_filter
-texture_std_filter
-skeleton_data
+get_features: \
+branch_thickness_voronoi \
+branch_thickness_medial_axis \
+texture_entropy_filter \
+texture_std_filter \
+skeleton_data \
 centroids_moments
 	$(python_interpreter) -m src.scripts.get_features \
 		--raw_dir data/raw \
