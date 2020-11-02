@@ -69,7 +69,7 @@ skeleton_data:
 		--results_base_dir data/interim
 
 centroids_moments:
-	$(python_interpreter) -m src.scripts.compute_centroids_moments \
+	$(python_interpreter) -m src.scripts.image_processing.compute_centroids_moments \
 		--imgs_dir data/raw/images \
 		--results_base_dir data/interim
 
@@ -83,7 +83,7 @@ centroids_moments
 	$(python_interpreter) -m src.scripts.get_features \
 		--raw_dir data/raw \
 		--interim_dir data/interim \
-		--save_path results/features_results.csv
+		--save_path results/features_new.csv
 
 clear_data:
 	rm -r data/interim ||:
