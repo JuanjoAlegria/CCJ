@@ -1,5 +1,6 @@
 import os
 import cv2
+import numpy as np
 
 def crop_image(img, new_size):
     height, width = img.shape[:2]
@@ -39,3 +40,26 @@ def load_images(imgs_dir, img_name):
         sk_img = crop_image(sk_img, ccj_img.shape[:2])
 
     return nuclei_img, ccj_img, seg_img, sk_img
+
+
+
+def resize_up_to(img, min_size):
+    scale_factor = int(np.ceil(min_size / min(img.shape)))
+    new_size = scale_factor * np.array(img.shape)
+    return cv2.resize(img, (new_size[1], new_size[0]))
+
+def contour_to_image(cnt):
+    """Generates a binary image from a contour.
+
+    Args:
+        cnt (np.ndarray): Contour by its vertices in a np.ndarray with
+            shape=(n_vertices, 2).
+    Returns:
+        np.ndarray, ndim=2, dtype=uint8: binary image with the filled
+            contour.
+    """
+    bbox = cv2.boundingRect(cnt)
+    norm_cnt = cnt - bbox[:2]
+    img = np.zeros((bbox[3], bbox[2]), dtype='uint8')
+    cv2.fillPoly(img, pts=[norm_cnt], color=255)
+    return img
