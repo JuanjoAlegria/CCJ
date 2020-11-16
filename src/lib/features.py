@@ -49,6 +49,49 @@ def get_area_features(seg_img, centroids_data):
     ret['white_area_ratio'] = white_area / total_area
     return ret
 
+def get_blobs_features(blobs_data):
+    """Computes the blobs features of an image.
+
+    For each feature we compute the mean, standard deviation, median and
+    median absolute deviation. Those features types are:
+        area: Area of the blob.
+        perimeter: Perimeter of the blob.
+        hull_area: Area of the convex hull.
+        hull_perimeter: Perimeter of the convex hull.
+        compactness: Ratio of the area of an object to the area of a circle
+            with the same perimeter (4*pi*area / perimeter**2).
+        solidity: Measures the density of an object (area / hull_area).
+        convexity: Relative amount that an object differs from a convex object
+            (hull_perimeter / perimeter).
+        major_axis_length: Length of the major axis.
+        minor_axis_length: Length of the minir axis.
+        elongation: Ratio between the length of the axes
+            (minor_axis_length / major_axis_length).
+        fractal_dimension: Fractal dimension of the boundary of the blob,
+            computed using the box-count estimator.
+        entropy: Entropy of the boundary of the blob.
+
+    Args:
+        blobs_data (pd.core.frame.DataFrame): Dataframe with the information
+            of the blobs.
+
+    Returns:
+        dict: Dictionary with the area features.
+    """
+    ret = {}
+    features_names = ['area', 'perimeter', 'hull_area', 'hull_perimeter',
+                      'compactness', 'solidity', 'convexity',
+                      'major_axis_length', 'minor_axis_length', 'elongation',
+                      'fractal_dimension', 'entropy']
+
+    for ft_name in features_names:
+        column = blobs_data[ft_name]
+        ret[f'{ft_name}_mean'] = column.mean()
+        ret[f'{ft_name}_std'] = column.std()
+        ret[f'{ft_name}_median'] = np.median(column)
+        ret[f'{ft_name}_mad'] = stats.median_absolute_deviation(column, scale=1)
+    return ret
+
 def get_skeleton_features(skeleton_data):
     """Computes the skeleton features of an image.
 
@@ -245,7 +288,7 @@ def get_statistics_features(processed_img, feature_name):
         ret[f'{feature_name}_{st_name}'] = dict_statistics[st_name]
     return ret
 
-def get_features(seg_img, centroids_data, skeleton_data,
+def get_features(seg_img, centroids_data, blobs_data, skeleton_data,
                  degrees_img, bt_medial_axis_img, bt_voronoi_img,
                  tx_std_img, tx_entropy_img):
     """Utilitary function that gets all the features: area, skeleton, nodes
@@ -255,6 +298,8 @@ def get_features(seg_img, centroids_data, skeleton_data,
         seg_img (np.ndarray): Segmented cell cell junction image.
         centroids_data (pd.core.frame.DataFrame): Dataframe with the information
             of the centroids and moments.
+        blobs_data (pd.core.frame.DataFrame): Dataframe with the information
+            of the blobs.
         skeleton_data (pd.core.frame.DataFrame): Dataframe with the information
             of the skeleton.
         degrees_img (np.ndarray): Image of the skeleton, with each skeleton
@@ -277,10 +322,12 @@ def get_features(seg_img, centroids_data, skeleton_data,
     features = {}
 
     area_fts = get_area_features(seg_img, centroids_data)
+    blobs_fts = get_blobs_features(blobs_data)
     sk_fts = get_skeleton_features(skeleton_data)
     dg_fts = get_nodes_degrees_features(degrees_img)
 
     features.update(area_fts)
+    features.update(blobs_fts)
     features.update(sk_fts)
     features.update(dg_fts)
 

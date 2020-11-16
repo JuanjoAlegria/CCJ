@@ -30,6 +30,8 @@ def main(raw_dir, interim_dir, save_path):
                                         '{ft_name}', f'{img_name}.csv')
         centroids_data = pd.read_csv(
             template_df_path.format(ft_name='centroids_data'), index_col=0)
+        blobs_data = pd.read_csv(
+            template_df_path.format(ft_name='blobs_data'), index_col=0)
         skeleton_data = pd.read_csv(
             template_df_path.format(ft_name='skeleton_data'), index_col=0)
         degrees_img = cv2.imread(
@@ -49,7 +51,7 @@ def main(raw_dir, interim_dir, save_path):
             cv2.IMREAD_UNCHANGED)
 
 
-        features = ftutils.get_features(seg_img, centroids_data,
+        features = ftutils.get_features(seg_img, centroids_data, blobs_data,
                                         skeleton_data, degrees_img,
                                         bt_medial_axis_img, bt_voronoi_img,
                                         tx_std_img, tx_entropy_img)

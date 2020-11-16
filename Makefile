@@ -73,13 +73,19 @@ centroids_moments:
 		--imgs_dir data/raw/images \
 		--results_base_dir data/interim
 
-get_features: \
+blobs_data:\
 branch_thickness_voronoi \
 branch_thickness_medial_axis \
 texture_entropy_filter \
 texture_std_filter \
 skeleton_data \
-centroids_moments
+centroids_moments \
+blobs_data
+	$(python_interpreter) -m src.scripts.image_processing.compute_blobs_data \
+		--imgs_dir data/raw/images \
+		--results_base_dir data/interim
+
+get_features:
 	$(python_interpreter) -m src.scripts.get_features \
 		--raw_dir data/raw \
 		--interim_dir data/interim \
