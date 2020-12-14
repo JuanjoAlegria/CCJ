@@ -89,7 +89,7 @@ get_features:
 	$(python_interpreter) -m src.scripts.get_features \
 		--raw_dir data/raw \
 		--interim_dir data/interim \
-		--save_path results/features_new.csv
+		--save_dir data/processed
 
 clear_data:
 	rm -r data/interim ||:
