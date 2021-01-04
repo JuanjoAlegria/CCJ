@@ -39,6 +39,12 @@ test_environment:
 # PROJECT RULES                                                                 #
 #################################################################################
 
+mask_images:
+	$(python_interpreter) -m src.scripts.image_processing.mask_images \
+		--imgs_dir data/raw/images \
+		--results_dir data/interim/masked
+
+
 branch_thickness_voronoi:
 	$(python_interpreter) -m src.scripts.image_processing.compute_branch_thickness \
 		--imgs_dir data/raw/images \
