@@ -23,7 +23,7 @@ def main(raw_dir, interim_dir, save_dir):
         # segmented images whose size differs from the ccj_img size,
         # so that condition must be checked and fixed before using the image.
 
-        _, _, seg_img, _ = utils.load_images(raw_imgs_dir, img_name)
+        _, ccj_img, seg_img, _ = utils.load_images(raw_imgs_dir, img_name)
 
         template_img_path = os.path.join(
             interim_dir, "images", "{ft_name}", f"{img_name}.tif"
@@ -60,6 +60,7 @@ def main(raw_dir, interim_dir, save_dir):
         )
 
         features = ftutils.get_features(
+            ccj_img,
             seg_img,
             centroids_data,
             blobs_data,

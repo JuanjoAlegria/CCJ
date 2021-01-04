@@ -2,6 +2,7 @@
 
 import numpy as np
 from scipy import ndimage as ndi
+from scipy import stats
 from scipy.ndimage.filters import uniform_filter
 from skimage.segmentation import watershed
 from skimage.feature import peak_local_max
@@ -9,6 +10,24 @@ from skimage.filters.rank import entropy
 from skimage.morphology import medial_axis
 from skan import skeleton_to_csgraph, summarize, Skeleton
 from . import utils
+
+
+def get_mask(ccj_img, seg_img):
+    """Generates a masked version of the CCJ image, zeroing those pixels where
+    seg_img is equal to zero.
+
+    Args:
+        ccj_img (np.array, shape=(n,n), dtype=np.uint8, np.uint16): Cell-cell
+            junction image.
+        seg_img (np.array, shape=(n,n)): Binarized cell-cell junction image.
+
+    Returns:
+        np.array, shape(n, n): Masked image.
+    """
+    masked = ccj_img.copy()
+    masked[seg_img == 0] = 0
+    return masked
+
 
 def mask_results(results_img, seg_img):
     """Applies a mask over the results of a operation.
@@ -25,6 +44,40 @@ def mask_results(results_img, seg_img):
     results_copy[seg_img == 0] = 0
     return results_copy
 
+
+def global_entropy_discrete(masked_img):
+    if masked_img.dtype == np.uint16:
+        masked_img = utils.convert_16_to_8(masked_img)
+    intensities = masked_img[masked_img != 0]
+    _, counts = np.unique(intensities, return_counts=True)
+    counts = counts / counts.sum()
+    return -np.sum(counts * np.log2(counts))
+
+
+def global_entropy_kde(masked_img, n_points=100):
+    if masked_img.dtype == np.uint16:
+        masked_img = utils.convert_16_to_8(masked_img)
+    intensities = masked_img[masked_img != 0]
+    kernel = stats.gaussian_kde(intensities, bw_method="scott")
+    X = np.linspace(min(intensities), max(intensities), n_points)
+    y = kernel(X)
+    dx = X[1] - X[0]
+    return -np.sum(y * np.log2(y) * dx)
+
+
+def coefficient_variation(masked_img):
+    """Computes the coefficient of variation over a masked image.
+
+    Args:
+        masked_img (np.ndarray): Masked image.
+
+    Returns:
+        float: Coefficient of variation.
+    """
+    intensities = masked_img[masked_img != 0]
+    return intensities.std() / intensities.mean()
+
+
 def window_stdev(img, window_size):
     """Computes the standard deviation in the neighborhood of each pixel.
 
@@ -40,9 +93,9 @@ def window_stdev(img, window_size):
         np.ndarray, shape=(n,n): Image after the filter is applied.
     """
     img_float = img.astype(float)
-    mean_x = uniform_filter(img_float, window_size, mode='reflect')
-    mean_xx = uniform_filter(img_float*img_float, window_size, mode='reflect')
-    variance = mean_xx - mean_x*mean_x
+    mean_x = uniform_filter(img_float, window_size, mode="reflect")
+    mean_xx = uniform_filter(img_float * img_float, window_size, mode="reflect")
+    variance = mean_xx - mean_x * mean_x
     variance = np.where(variance < 0, 0, variance)
     return np.sqrt(variance)
 
@@ -59,14 +112,16 @@ def branch_thickness_voronoi(seg_img):
             of the skeleton has the thickness in that point.
     """
     distance = ndi.distance_transform_edt(seg_img)
-    local_maxi = peak_local_max(-distance, indices=False,
-                                footprint=np.ones((3, 3)), labels=seg_img)
+    local_maxi = peak_local_max(
+        -distance, indices=False, footprint=np.ones((3, 3)), labels=seg_img
+    )
     markers = ndi.label(local_maxi)[0]
     labels = watershed(distance, markers, watershed_line=True)
     mask = labels == 0
     distance_on_skel = distance.copy()
     distance_on_skel[~mask] = 0
     return distance_on_skel
+
 
 def branch_thickness_medial_axis(seg_img):
     """Computes the thickness of the branches using the medial axis algorithm.
@@ -81,6 +136,7 @@ def branch_thickness_medial_axis(seg_img):
     skel, distance = medial_axis(seg_img, return_distance=True)
     dist_on_skel = distance * skel
     return dist_on_skel
+
 
 def texture_std_filter(ccj_img, seg_img, window_size=7):
     """Applies a texture filter over ccj_img, and then uses seg_img to mask those
@@ -101,6 +157,7 @@ def texture_std_filter(ccj_img, seg_img, window_size=7):
     mask_filtered = mask_results(filtered, seg_img)
     return mask_filtered
 
+
 def texture_entropy_filter(ccj_img, seg_img, window_size=7):
     """Applies a texture filter over ccj_img, and then uses seg_img to mask those
     results. The texture is computed using an entropy filter.
@@ -120,6 +177,7 @@ def texture_entropy_filter(ccj_img, seg_img, window_size=7):
     filtered = entropy(ccj_img, np.ones((window_size, window_size)))
     mask_filtered = mask_results(filtered, seg_img)
     return mask_filtered
+
 
 def skeleton_data(sk_img):
     """Computes the skeleton data from a skeletonized image. For more

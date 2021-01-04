@@ -2,6 +2,8 @@
 
 import numpy as np
 from scipy import stats
+from . import image_processing as iputils
+
 
 def get_statistics_from_processed_image(processed_img):
     """Utilitary function that computes the mean, std, median and median
@@ -16,12 +18,13 @@ def get_statistics_from_processed_image(processed_img):
     """
     non_zero = processed_img[np.where(processed_img != 0)]
     statistics = {
-        'mean': non_zero.mean(),
-        'std':  non_zero.std(),
-        'median': np.median(non_zero),
-        'mad': stats.median_absolute_deviation(non_zero, scale=1, axis=None)
+        "mean": non_zero.mean(),
+        "std": non_zero.std(),
+        "median": np.median(non_zero),
+        "mad": stats.median_absolute_deviation(non_zero, scale=1, axis=None),
     }
     return statistics
+
 
 def get_area_features(seg_img, centroids_data):
     """Computes the area features of an image.
@@ -42,12 +45,13 @@ def get_area_features(seg_img, centroids_data):
         dict: Dictionary with the area features.
     """
     ret = {}
-    cell_area = centroids_data['m00'].sum()
+    cell_area = centroids_data["m00"].sum()
     white_area = len(seg_img[seg_img == 255])
     total_area = seg_img.shape[0] * seg_img.shape[1]
-    ret['cell_area_ratio'] = cell_area / total_area
-    ret['white_area_ratio'] = white_area / total_area
+    ret["cell_area_ratio"] = cell_area / total_area
+    ret["white_area_ratio"] = white_area / total_area
     return ret
+
 
 def get_blobs_features(blobs_data):
     """Computes the blobs features of an image.
@@ -79,18 +83,29 @@ def get_blobs_features(blobs_data):
         dict: Dictionary with the area features.
     """
     ret = {}
-    features_names = ['area', 'perimeter', 'hull_area', 'hull_perimeter',
-                      'compactness', 'solidity', 'convexity',
-                      'major_axis_length', 'minor_axis_length', 'elongation',
-                      'fractal_dimension', 'entropy']
+    features_names = [
+        "area",
+        "perimeter",
+        "hull_area",
+        "hull_perimeter",
+        "compactness",
+        "solidity",
+        "convexity",
+        "major_axis_length",
+        "minor_axis_length",
+        "elongation",
+        "fractal_dimension",
+        "entropy",
+    ]
 
     for ft_name in features_names:
         column = blobs_data[ft_name]
-        ret[f'{ft_name}_mean'] = column.mean()
-        ret[f'{ft_name}_std'] = column.std()
-        ret[f'{ft_name}_median'] = np.median(column)
-        ret[f'{ft_name}_mad'] = stats.median_absolute_deviation(column, scale=1)
+        ret[f"{ft_name}_mean"] = column.mean()
+        ret[f"{ft_name}_std"] = column.std()
+        ret[f"{ft_name}_median"] = np.median(column)
+        ret[f"{ft_name}_mad"] = stats.median_absolute_deviation(column, scale=1)
     return ret
+
 
 def get_skeleton_features(skeleton_data):
     """Computes the skeleton features of an image.
@@ -140,83 +155,85 @@ def get_skeleton_features(skeleton_data):
     ret = {}
 
     # End-to-end
-    e2e_data = skeleton_data[skeleton_data['branch-type'] == 0]
-    e2e_ratio_distances = e2e_data['euclidean-distance'] /  \
-                            e2e_data['branch-distance']
-    ret['e2e_n'] = len(e2e_data)
+    e2e_data = skeleton_data[skeleton_data["branch-type"] == 0]
+    e2e_ratio_distances = e2e_data["euclidean-distance"] / e2e_data["branch-distance"]
+    ret["e2e_n"] = len(e2e_data)
 
-    ret['e2e_distance_mean'] = e2e_data['branch-distance'].mean()
-    ret['e2e_distance_std'] = e2e_data['branch-distance'].std()
-    ret['e2e_distance_median'] = np.median(e2e_data['branch-distance'])
-    ret['e2e_distance_mad'] = stats.median_absolute_deviation(
-                                        e2e_data['branch-distance'], scale=1)
+    ret["e2e_distance_mean"] = e2e_data["branch-distance"].mean()
+    ret["e2e_distance_std"] = e2e_data["branch-distance"].std()
+    ret["e2e_distance_median"] = np.median(e2e_data["branch-distance"])
+    ret["e2e_distance_mad"] = stats.median_absolute_deviation(
+        e2e_data["branch-distance"], scale=1
+    )
 
-    ret['e2e_eu_distance_mean'] = e2e_data['euclidean-distance'].mean()
-    ret['e2e_eu_distance_std'] = e2e_data['euclidean-distance'].std()
-    ret['e2e_eu_distance_median'] = np.median(e2e_data['euclidean-distance'])
-    ret['e2e_eu_distance_mad'] = stats.median_absolute_deviation(
-                                        e2e_data['euclidean-distance'], scale=1)
+    ret["e2e_eu_distance_mean"] = e2e_data["euclidean-distance"].mean()
+    ret["e2e_eu_distance_std"] = e2e_data["euclidean-distance"].std()
+    ret["e2e_eu_distance_median"] = np.median(e2e_data["euclidean-distance"])
+    ret["e2e_eu_distance_mad"] = stats.median_absolute_deviation(
+        e2e_data["euclidean-distance"], scale=1
+    )
 
-
-    ret['e2e_distance_ratio_mean'] = e2e_ratio_distances.mean()
-    ret['e2e_distance_ratio_std'] = e2e_ratio_distances.std()
-    ret['e2e_distance_ratio_median'] = np.median(e2e_ratio_distances)
-    ret['e2e_distance_ratio_mad'] = stats.median_absolute_deviation(
-                                        e2e_ratio_distances, scale=1)
-
+    ret["e2e_distance_ratio_mean"] = e2e_ratio_distances.mean()
+    ret["e2e_distance_ratio_std"] = e2e_ratio_distances.std()
+    ret["e2e_distance_ratio_median"] = np.median(e2e_ratio_distances)
+    ret["e2e_distance_ratio_mad"] = stats.median_absolute_deviation(
+        e2e_ratio_distances, scale=1
+    )
 
     # Junction-to-end
-    j2e_data = skeleton_data[skeleton_data['branch-type'] == 1]
-    j2e_ratio_distances = j2e_data['euclidean-distance'] /  \
-                            j2e_data['branch-distance']
-    ret['j2e_n'] = len(j2e_data)
+    j2e_data = skeleton_data[skeleton_data["branch-type"] == 1]
+    j2e_ratio_distances = j2e_data["euclidean-distance"] / j2e_data["branch-distance"]
+    ret["j2e_n"] = len(j2e_data)
 
-    ret['j2e_distance_mean'] = j2e_data['branch-distance'].mean()
-    ret['j2e_distance_std'] = j2e_data['branch-distance'].std()
-    ret['j2e_distance_median'] = np.median(j2e_data['branch-distance'])
-    ret['j2e_distance_mad'] = stats.median_absolute_deviation(
-                                        j2e_data['branch-distance'], scale=1)
+    ret["j2e_distance_mean"] = j2e_data["branch-distance"].mean()
+    ret["j2e_distance_std"] = j2e_data["branch-distance"].std()
+    ret["j2e_distance_median"] = np.median(j2e_data["branch-distance"])
+    ret["j2e_distance_mad"] = stats.median_absolute_deviation(
+        j2e_data["branch-distance"], scale=1
+    )
 
-    ret['j2e_eu_distance_mean'] = j2e_data['euclidean-distance'].mean()
-    ret['j2e_eu_distance_std'] = j2e_data['euclidean-distance'].std()
-    ret['j2e_eu_distance_median'] = np.median(j2e_data['euclidean-distance'])
-    ret['j2e_eu_distance_mad'] = stats.median_absolute_deviation(
-                                        j2e_data['euclidean-distance'], scale=1)
+    ret["j2e_eu_distance_mean"] = j2e_data["euclidean-distance"].mean()
+    ret["j2e_eu_distance_std"] = j2e_data["euclidean-distance"].std()
+    ret["j2e_eu_distance_median"] = np.median(j2e_data["euclidean-distance"])
+    ret["j2e_eu_distance_mad"] = stats.median_absolute_deviation(
+        j2e_data["euclidean-distance"], scale=1
+    )
 
-
-    ret['j2e_distance_ratio_mean'] = j2e_ratio_distances.mean()
-    ret['j2e_distance_ratio_std'] = j2e_ratio_distances.std()
-    ret['j2e_distance_ratio_median'] = np.median(j2e_ratio_distances)
-    ret['j2e_distance_ratio_mad'] = stats.median_absolute_deviation(
-                                        j2e_ratio_distances, scale=1)
-
+    ret["j2e_distance_ratio_mean"] = j2e_ratio_distances.mean()
+    ret["j2e_distance_ratio_std"] = j2e_ratio_distances.std()
+    ret["j2e_distance_ratio_median"] = np.median(j2e_ratio_distances)
+    ret["j2e_distance_ratio_mad"] = stats.median_absolute_deviation(
+        j2e_ratio_distances, scale=1
+    )
 
     # Junction-to-junction
-    j2j_data = skeleton_data[skeleton_data['branch-type'] == 2]
-    j2j_ratio_distances = j2j_data['euclidean-distance'] /  \
-                            j2j_data['branch-distance']
-    ret['j2j_n'] = len(j2j_data)
+    j2j_data = skeleton_data[skeleton_data["branch-type"] == 2]
+    j2j_ratio_distances = j2j_data["euclidean-distance"] / j2j_data["branch-distance"]
+    ret["j2j_n"] = len(j2j_data)
 
-    ret['j2j_distance_mean'] = j2j_data['branch-distance'].mean()
-    ret['j2j_distance_std'] = j2j_data['branch-distance'].std()
-    ret['j2j_distance_median'] = np.median(j2j_data['branch-distance'])
-    ret['j2j_distance_mad'] = stats.median_absolute_deviation(
-                                        j2j_data['branch-distance'], scale=1)
+    ret["j2j_distance_mean"] = j2j_data["branch-distance"].mean()
+    ret["j2j_distance_std"] = j2j_data["branch-distance"].std()
+    ret["j2j_distance_median"] = np.median(j2j_data["branch-distance"])
+    ret["j2j_distance_mad"] = stats.median_absolute_deviation(
+        j2j_data["branch-distance"], scale=1
+    )
 
-    ret['j2j_eu_distance_mean'] = j2j_data['euclidean-distance'].mean()
-    ret['j2j_eu_distance_std'] = j2j_data['euclidean-distance'].std()
-    ret['j2j_eu_distance_median'] = np.median(j2j_data['euclidean-distance'])
-    ret['j2j_eu_distance_mad'] = stats.median_absolute_deviation(
-                                        j2j_data['euclidean-distance'], scale=1)
+    ret["j2j_eu_distance_mean"] = j2j_data["euclidean-distance"].mean()
+    ret["j2j_eu_distance_std"] = j2j_data["euclidean-distance"].std()
+    ret["j2j_eu_distance_median"] = np.median(j2j_data["euclidean-distance"])
+    ret["j2j_eu_distance_mad"] = stats.median_absolute_deviation(
+        j2j_data["euclidean-distance"], scale=1
+    )
 
-
-    ret['j2j_distance_ratio_mean'] = j2j_ratio_distances.mean()
-    ret['j2j_distance_ratio_std'] = j2j_ratio_distances.std()
-    ret['j2j_distance_ratio_median'] = np.median(j2j_ratio_distances)
-    ret['j2j_distance_ratio_mad'] = stats.median_absolute_deviation(
-                                        j2j_ratio_distances, scale=1)
+    ret["j2j_distance_ratio_mean"] = j2j_ratio_distances.mean()
+    ret["j2j_distance_ratio_std"] = j2j_ratio_distances.std()
+    ret["j2j_distance_ratio_median"] = np.median(j2j_ratio_distances)
+    ret["j2j_distance_ratio_mad"] = stats.median_absolute_deviation(
+        j2j_ratio_distances, scale=1
+    )
 
     return ret
+
 
 def get_nodes_degrees_features(degrees_img):
     """Computes the nodes degrees features of an image.
@@ -239,13 +256,14 @@ def get_nodes_degrees_features(degrees_img):
     """
     ret = {}
     nodes = degrees_img[np.where(degrees_img > 2)]
-    ret['nodes_n'] = len(nodes)
-    ret['nodes_max'] = nodes.max()
-    ret['nodes_mean'] = nodes.mean()
-    ret['nodes_std'] = nodes.std()
-    ret['nodes_median'] = np.median(nodes)
-    ret['nodes_mad'] = stats.median_absolute_deviation(nodes, scale=1)
+    ret["nodes_n"] = len(nodes)
+    ret["nodes_max"] = nodes.max()
+    ret["nodes_mean"] = nodes.mean()
+    ret["nodes_std"] = nodes.std()
+    ret["nodes_median"] = np.median(nodes)
+    ret["nodes_mad"] = stats.median_absolute_deviation(nodes, scale=1)
     return ret
+
 
 def get_statistics_features(processed_img, feature_name):
     """Computes the mean and standard deviation for a generic processed image,
@@ -284,17 +302,37 @@ def get_statistics_features(processed_img, feature_name):
     """
     ret = {}
     dict_statistics = get_statistics_from_processed_image(processed_img)
-    for st_name in ['mean', 'std', 'median', 'mad']:
-        ret[f'{feature_name}_{st_name}'] = dict_statistics[st_name]
+    for st_name in ["mean", "std", "median", "mad"]:
+        ret[f"{feature_name}_{st_name}"] = dict_statistics[st_name]
     return ret
 
-def get_features(seg_img, centroids_data, blobs_data, skeleton_data,
-                 degrees_img, bt_medial_axis_img, bt_voronoi_img,
-                 tx_std_img, tx_entropy_img):
+
+def get_global_dispersion_features(ccj_img, seg_img):
+    ret = {}
+    masked = iputils.get_mask(ccj_img, seg_img)
+    ret["global_entropy_discrete"] = iputils.global_entropy_discrete(masked)
+    ret["global_entropy_kde"] = iputils.global_entropy_kde(masked)
+    ret["global_coeff_var"] = iputils.coefficient_variation(masked)
+    return ret
+
+
+def get_features(
+    ccj_img,
+    seg_img,
+    centroids_data,
+    blobs_data,
+    skeleton_data,
+    degrees_img,
+    bt_medial_axis_img,
+    bt_voronoi_img,
+    tx_std_img,
+    tx_entropy_img,
+):
     """Utilitary function that gets all the features: area, skeleton, nodes
     degrees, branch thickness and texture features.
 
     Args:
+        ccj_img (np.ndarray): Original cell cell junction image.
         seg_img (np.ndarray): Segmented cell cell junction image.
         centroids_data (pd.core.frame.DataFrame): Dataframe with the information
             of the centroids and moments.
@@ -325,18 +363,22 @@ def get_features(seg_img, centroids_data, blobs_data, skeleton_data,
     blobs_fts = get_blobs_features(blobs_data)
     sk_fts = get_skeleton_features(skeleton_data)
     dg_fts = get_nodes_degrees_features(degrees_img)
+    gd_fts = get_global_dispersion_features(ccj_img, seg_img)
 
     features.update(area_fts)
     features.update(blobs_fts)
     features.update(sk_fts)
     features.update(dg_fts)
 
-    map_names_imgs = {'branch_thickness_medial_axis': bt_medial_axis_img,
-                      'branch_thickness_voronoi': bt_voronoi_img,
-                      'texture_std_filter': tx_std_img,
-                      'texture_entropy_filter': tx_entropy_img}
+    map_names_imgs = {
+        "branch_thickness_medial_axis": bt_medial_axis_img,
+        "branch_thickness_voronoi": bt_voronoi_img,
+        "texture_std_filter": tx_std_img,
+        "texture_entropy_filter": tx_entropy_img,
+    }
 
     for ft_name, img in map_names_imgs.items():
         features.update(get_statistics_features(img, ft_name))
 
+    features.update(gd_fts)
     return features
