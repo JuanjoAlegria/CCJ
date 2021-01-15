@@ -20,24 +20,67 @@ def compute_entropy(raw_vector):
     return entropy
 
 
-def get_statistics_from_processed_image(processed_img):
-    """Utilitary function that computes the mean, std, median and median
-    absolute deviation (mad) for the non-zero pixels of a processed image"
+def compute_entropy_kde(vector, n_points=100):
+    """Computes Shannon's entropy of a vector using a Kernel Density Estimator
+    istead of the count of the elements.
 
     Args:
-        processed_img (np.ndarray): Processed image
+        raw_vector (np.ndarray): Vector.
+
+    Returns:
+        float: Shannon's entropy.
+    """
+    try:
+        kernel = stats.gaussian_kde(vector, bw_method="scott")
+        X = np.linspace(min(vector), max(vector), n_points)
+        y = kernel(X)
+        dx = X[1] - X[0]
+        return -np.sum(y * np.log2(y) * dx)
+    except Exception as e:
+        print(e, vector)
+        return -1
+
+
+def compute_mode(vector):
+    """Computes the mode of a vector.
+
+    If the vector is formed only by integers, then we compute the mode just
+    counting the numbers. Otherwise (the vector has floating point numbers), we
+    compute the mode using an histogram.
+
+    Args:
+        vector (np.ndarray): Vector.
+
+    Returns:
+        int | float: mode.
+    """
+    if issubclass(vector.dtype.type, np.integer):
+        return stats.mode(vector).mode[0]
+    else:
+        hist, bin_edges = np.histogram(vector, bins="auto")
+        idx_max = hist.argmax()
+        mode = (bin_edges[idx_max] + bin_edges[idx_max + 1]) / 2
+        return mode
+
+
+def get_summary_statistics(vector):
+    """Utilitary function that computes the mean, std, median, median
+    absolute deviation (mad), entropy and mode for a vector"
+
+    Args:
+        vector (np.ndarray, ndim=1): vector
 
     Returns:
         dict[str->float]: Dictionary with the computed statistics, with the keys
-        'mean', 'std', 'median' and 'mad'.
+        'mean', 'std', 'median', 'mad' and 'entropy'.
     """
-    non_zero = processed_img[np.where(processed_img != 0)]
     statistics = {
-        "mean": non_zero.mean(),
-        "std": non_zero.std(),
-        "median": np.median(non_zero),
-        "mad": stats.median_absolute_deviation(non_zero, scale=1, axis=None),
-        "entropy": compute_entropy(non_zero),
+        "mean": vector.mean(),
+        "std": vector.std(),
+        "median": np.median(vector),
+        "mad": stats.median_absolute_deviation(vector, scale=1, axis=None),
+        "entropy": compute_entropy_kde(vector),
+        "mode": compute_mode(vector),
     }
     return statistics
 
@@ -116,11 +159,8 @@ def get_blobs_features(blobs_data):
 
     for ft_name in features_names:
         column = blobs_data[ft_name]
-        ret[f"{ft_name}_mean"] = column.mean()
-        ret[f"{ft_name}_std"] = column.std()
-        ret[f"{ft_name}_median"] = np.median(column)
-        ret[f"{ft_name}_mad"] = stats.median_absolute_deviation(column, scale=1)
-        ret[f"{ft_name}_entropy"] = compute_entropy(column)
+        sumstats = get_summary_statistics(column)
+        ret.update({f"{ft_name}_{key}": value for key, value in sumstats.items()})
     return ret
 
 
@@ -189,14 +229,13 @@ def get_skeleton_features(skeleton_data):
         ret[f"{b_suffix}_n"] = len(data)
 
         for dist_type, dist_data in distances_types.items():
-            ret[f"{b_suffix}_{dist_type}_mean"] = dist_data.mean()
-            ret[f"{b_suffix}_{dist_type}_std"] = dist_data.std()
-            ret[f"{b_suffix}_{dist_type}_median"] = np.median(dist_data)
-            ret[f"{b_suffix}_{dist_type}_mad"] = stats.median_absolute_deviation(
-                dist_data, scale=1
+            sumstats = get_summary_statistics(dist_data)
+            ret.update(
+                {
+                    f"{b_suffix}_{dist_type}_{key}": value
+                    for key, value in sumstats.items()
+                }
             )
-            ret[f"{b_suffix}_{dist_type}_entropy"] = compute_entropy(dist_data)
-
     return ret
 
 
@@ -223,14 +262,12 @@ def get_nodes_degrees_features(degrees_img):
     nodes = degrees_img[np.where(degrees_img > 2)]
     ret["nodes_n"] = len(nodes)
     ret["nodes_max"] = nodes.max()
-    ret["nodes_mean"] = nodes.mean()
-    ret["nodes_std"] = nodes.std()
-    ret["nodes_median"] = np.median(nodes)
-    ret["nodes_mad"] = stats.median_absolute_deviation(nodes, scale=1)
-    ret["nodes_entropy"] = compute_entropy(nodes)
+    sumstats = get_summary_statistics(nodes)
+    ret.update({f"nodes_{key}": value for key, value in sumstats.items()})
     return ret
 
 
+# TODO change name
 def get_statistics_features(processed_img, feature_name):
     """Computes the mean and standard deviation for a generic processed image,
     where the only values that should be considered are the non-zero pixels.
@@ -267,9 +304,12 @@ def get_statistics_features(processed_img, feature_name):
         dict: Dictionary with the mean and std of the feature we are computing.
     """
     ret = {}
-    dict_statistics = get_statistics_from_processed_image(processed_img)
-    for st_name in ["mean", "std", "median", "mad", "entropy"]:
-        ret[f"{feature_name}_{st_name}"] = dict_statistics[st_name]
+    non_zero = processed_img[np.where(processed_img != 0)]
+    sumstats = get_summary_statistics(non_zero)
+    ret.update({f"{feature_name}_{key}": value for key, value in sumstats.items()})
+
+    # for st_name in ["mean", "std", "median", "mad", "entropy"]:
+    #     ret[f"{feature_name}_{st_name}"] = dict_statistics[st_name]
     return ret
 
 
