@@ -23,7 +23,8 @@ def main(raw_dir, interim_dir, save_dir):
         # segmented images whose size differs from the ccj_img size,
         # so that condition must be checked and fixed before using the image.
 
-        _, ccj_img, seg_img, _ = utils.load_images(raw_imgs_dir, img_name)
+        nuclei_img, ccj_img, seg_img, _ = utils.load_images(raw_imgs_dir, img_name)
+        nuclei_img = utils.convert_16_gray_to_8_bgr(nuclei_img)
 
         template_img_path = os.path.join(
             interim_dir, "images", "{ft_name}", f"{img_name}.tif"
@@ -31,9 +32,9 @@ def main(raw_dir, interim_dir, save_dir):
         template_df_path = os.path.join(
             interim_dir, "dataframes", "{ft_name}", f"{img_name}.csv"
         )
-        centroids_data = pd.read_csv(
-            template_df_path.format(ft_name="centroids_data"), index_col=0
-        )
+        # centroids_data = pd.read_csv(
+        #     template_df_path.format(ft_name="centroids_data"), index_col=0
+        # )
         blobs_data = pd.read_csv(
             template_df_path.format(ft_name="blobs_data"), index_col=0
         )
@@ -62,7 +63,7 @@ def main(raw_dir, interim_dir, save_dir):
         features = ftutils.get_features(
             ccj_img,
             seg_img,
-            centroids_data,
+            nuclei_img,
             blobs_data,
             skeleton_data,
             degrees_img,

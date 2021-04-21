@@ -3,6 +3,8 @@
 import numpy as np
 from scipy import stats
 from . import image_processing as iputils
+from . import centroids as centutils
+from . import cell_blobs_skimage as blobsutils
 
 
 def compute_entropy(raw_vector):
@@ -14,6 +16,7 @@ def compute_entropy(raw_vector):
     Returns:
         float: Shannon's entropy.
     """
+
     _, counts = np.unique(raw_vector, return_counts=True)
     counts = counts / counts.sum()
     entropy = -np.sum(counts * np.log2(counts))
@@ -74,18 +77,29 @@ def get_summary_statistics(vector):
         dict[str->float]: Dictionary with the computed statistics, with the keys
         'mean', 'std', 'median', 'mad' and 'entropy'.
     """
+    if len(vector) == 0:
+        mean = std = median = mad = entropy = mode = 0
+
+    else:
+        mean = vector.mean()
+        std = vector.std()
+        median = np.median(vector)
+        mad = stats.median_absolute_deviation(vector, scale=1, axis=None)
+        # entropy = compute_entropy_kde(vector)
+        mode = compute_mode(vector)
+
     statistics = {
-        "mean": vector.mean(),
-        "std": vector.std(),
-        "median": np.median(vector),
-        "mad": stats.median_absolute_deviation(vector, scale=1, axis=None),
-        "entropy": compute_entropy_kde(vector),
-        "mode": compute_mode(vector),
+        "mean": mean,
+        "std": std,
+        "median": median,
+        "mad": mad,
+        # "entropy": entropy,
+        "mode": mode,
     }
     return statistics
 
 
-def get_area_features(seg_img, centroids_data):
+def get_area_features(seg_img):
     """Computes the area features of an image.
 
     The features are:
@@ -104,15 +118,15 @@ def get_area_features(seg_img, centroids_data):
         dict: Dictionary with the area features.
     """
     ret = {}
-    cell_area = centroids_data["m00"].sum()
-    white_area = len(seg_img[seg_img == 255])
+    # cell_area = centroids_data["m00"].sum()
+    # ret["cell_area_ratio"] = cell_area / total_area
     total_area = seg_img.shape[0] * seg_img.shape[1]
-    ret["cell_area_ratio"] = cell_area / total_area
+    white_area = len(seg_img[seg_img == 255])
     ret["white_area_ratio"] = white_area / total_area
     return ret
 
 
-def get_blobs_features(blobs_data):
+def get_blobs_features(blobs_data, min_area=900):
     """Computes the blobs features of an image.
 
     For each feature we compute the mean, standard deviation, median and
@@ -152,15 +166,30 @@ def get_blobs_features(blobs_data):
         "convexity",
         "major_axis_length",
         "minor_axis_length",
-        "elongation",
-        "fractal_dimension",
-        "entropy",
+        "elongation"
+        # "fractal_dimension",
+        # "entropy",
     ]
 
-    for ft_name in features_names:
-        column = blobs_data[ft_name]
-        sumstats = get_summary_statistics(column)
-        ret.update({f"{ft_name}_{key}": value for key, value in sumstats.items()})
+    blobs_data_no_borders = blobs_data[~blobs_data["is_at_border"]]
+    dfs = [
+        {"suffix": "", "df": blobs_data},
+        {"suffix": "_borderless", "df": blobs_data_no_borders},
+    ]
+
+    if min_area is not None:
+        blobs_data_no_small = blobs_data[blobs_data["area"] > min_area]
+        dfs.append({"suffix": f"_>{min_area}", "df": blobs_data_no_small})
+
+    for element in dfs:
+        data, suffix = element["df"], element["suffix"]
+        for ft_name in features_names:
+            column = data[ft_name]
+            sumstats = get_summary_statistics(column)
+            ret.update(
+                {f"{ft_name}{suffix}_{key}": value for key, value in sumstats.items()}
+            )
+        ret[f"blobs{suffix}_n"] = len(data)
     return ret
 
 
@@ -210,7 +239,6 @@ def get_skeleton_features(skeleton_data):
         dict: Dictionary with the skeleton features.
     """
     ret = {}
-
     branches_types = {
         "e2e": 0,  # End-to-end
         "j2e": 1,  # Junction-to-end
@@ -322,10 +350,44 @@ def get_global_dispersion_features(ccj_img, seg_img):
     return ret
 
 
+def get_nuclei_blobs_features(nuclei_img, blobs_data, min_area=1000, max_area=70000):
+    ret = {}
+    nuclei_centroids = centutils.remove_close_centroids(
+        centutils.get_nuclei_centroids(nuclei_img), radio=50
+    )
+
+    h, w = nuclei_img.shape[:2]
+    index_small = blobs_data["area"] <= min_area
+    index_big = blobs_data["area"] >= max_area
+    blobs_data_no_small = blobs_data[~index_small]
+    blobs_data_small = blobs_data[index_small]
+    blobs_data_big = blobs_data[index_big]
+
+    total_area_small = blobs_data_small["area"].sum()
+    total_area_big = blobs_data_big["area"].sum()
+
+    n_nuclei = len(nuclei_centroids)
+    n_blobs = len(blobs_data)
+    n_blobs_no_small = len(blobs_data_no_small)
+
+    percentage_big = total_area_big / (h * w)
+    percentage_small = total_area_small / (h * w)
+
+    ret["nuclei_n"] = n_nuclei
+    ret["nuclei_blobs_ratio"] = n_blobs_no_small / n_nuclei
+    ret[f"blobs_<{min_area}_ratio"] = 1 - n_blobs_no_small / n_blobs
+    ret[f"total_area_blobs<{min_area}"] = total_area_small
+    ret[f"total_area_blobs>{max_area}"] = total_area_big
+    ret[f"percentage_area_blobs<{min_area}"] = percentage_small
+    ret[f"percentage_area_blobs>{max_area}"] = percentage_big
+
+    return ret
+
+
 def get_features(
     ccj_img,
     seg_img,
-    centroids_data,
+    nuclei_img,
     blobs_data,
     skeleton_data,
     degrees_img,
@@ -340,6 +402,7 @@ def get_features(
     Args:
         ccj_img (np.ndarray): Original cell cell junction image.
         seg_img (np.ndarray): Segmented cell cell junction image.
+        nuclei_img (np.ndarray): Nuclei image.
         centroids_data (pd.core.frame.DataFrame): Dataframe with the information
             of the centroids and moments.
         blobs_data (pd.core.frame.DataFrame): Dataframe with the information
@@ -365,16 +428,20 @@ def get_features(
 
     features = {}
 
-    area_fts = get_area_features(seg_img, centroids_data)
+    area_fts = get_area_features(seg_img)
     blobs_fts = get_blobs_features(blobs_data)
     sk_fts = get_skeleton_features(skeleton_data)
     dg_fts = get_nodes_degrees_features(degrees_img)
     gd_fts = get_global_dispersion_features(ccj_img, seg_img)
+    nb_fts = get_nuclei_blobs_features(
+        nuclei_img, blobs_data, min_area=1000, max_area=70000
+    )
 
     features.update(area_fts)
     features.update(blobs_fts)
     features.update(sk_fts)
     features.update(dg_fts)
+    features.update(nb_fts)
 
     map_names_imgs = {
         "branch_thickness_medial_axis": bt_medial_axis_img,

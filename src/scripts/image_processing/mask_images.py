@@ -13,11 +13,11 @@ def main(imgs_dir, results_dir):
         if os.path.splitext(fullname)[1] != ".tif":
             continue
         img_name = fullname[:-5]
+        print(f"Processed image {img_name}")
         _, ccj_img, seg_img, _ = utils.load_images(imgs_dir, img_name)
         masked = iputils.get_mask(ccj_img, seg_img)
         img_path = os.path.join(results_dir, f"{img_name}.tif")
         tifffile.imsave(img_path, masked)
-        print(f"Processed image {img_name}")
 
 
 if __name__ == "__main__":

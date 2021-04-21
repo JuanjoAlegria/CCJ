@@ -3,23 +3,27 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 from scipy.interpolate import interp1d
+import matplotlib.pyplot as plt
+from . import image_processing as iputils
 
 
 def get_contours_and_moments(seg_img, std_factor=3):
-    seg_inv = cv2.bitwise_not(seg_img)
-    contours, _ = cv2.findContours(seg_inv, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    # seg_inv = cv2.bitwise_not(seg_img)
+    contours, _ = cv2.findContours(seg_img, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
     moments = []
     for cnt in contours:
         moment = cv2.moments(cnt)
         moments.append(moment)
-    areas = np.array([m['m00'] for m in moments])
+    areas = np.array([m["m00"] for m in moments])
     areas_mean, areas_std = areas.mean(), areas.std()
 
+    height, width = seg_img.shape
     keep_indexes = []
-    for index, moment in enumerate(moments):
-        current_area = moment['m00']
-        if current_area == 0 or \
-            abs(current_area - areas_mean) > std_factor * areas_std:
+    for index, (cnt, moment) in enumerate(zip(contours, moments)):
+        if iputils.is_contour_in_border(cnt, height, width):
+            continue
+        current_area = moment["m00"]
+        if current_area == 0 or abs(current_area - areas_mean) > std_factor * areas_std:
             continue
         keep_indexes.append(index)
 
@@ -27,13 +31,14 @@ def get_contours_and_moments(seg_img, std_factor=3):
     moments = np.array(moments)[keep_indexes]
     return contours, moments
 
+
 def get_region_measurements(cnt):
     area = cv2.contourArea(cnt)
     perimeter = cv2.arcLength(cnt, True)
     hull = cv2.convexHull(cnt)
     hull_area = cv2.contourArea(hull)
     hull_perimeter = cv2.arcLength(hull, True)
-    compactness = 4*np.pi*area / (perimeter**2)
+    compactness = 4 * np.pi * area / (perimeter ** 2)
     solidity = area / hull_area
     convexity = hull_perimeter / perimeter
     min_bbox = cv2.minAreaRect(cnt)
@@ -41,46 +46,46 @@ def get_region_measurements(cnt):
     minor_axis_length = min(min_bbox[1])
     elongation = minor_axis_length / major_axis_length
     res = {
-        'area': area,
-        'perimeter': perimeter,
-        'hull_area': hull_area,
-        'hull_perimeter': hull_perimeter,
-        'compactness': compactness,
-        'solidity': solidity,
-        'convexity': convexity,
-        'major_axis_length': major_axis_length,
-        'minor_axis_length': minor_axis_length,
-        'elongation': elongation
+        "area": area,
+        "perimeter": perimeter,
+        "hull_area": hull_area,
+        "hull_perimeter": hull_perimeter,
+        "compactness": compactness,
+        "solidity": solidity,
+        "convexity": convexity,
+        "major_axis_length": major_axis_length,
+        "minor_axis_length": minor_axis_length,
+        "elongation": elongation,
     }
     return res
+
 
 def get_boundary_measurements(cnt):
     radial_distances = get_radial_dimension(cnt)
     xs = np.arange(len(radial_distances))
     fractal_dimension = get_fractal_dimension_1d(xs, radial_distances)
     ent = get_entropy(radial_distances)
-    res = {
-        'fractal_dimension': fractal_dimension,
-        'entropy': ent
-    }
+    res = {"fractal_dimension": fractal_dimension, "entropy": ent}
     return res
 
+
 def get_entropy(ys):
-    hist, _ = np.histogram(ys, bins='fd')
+    hist, _ = np.histogram(ys, bins="fd")
     hist_norm = hist / hist.sum()
     return stats.entropy(hist_norm, base=2)
+
 
 def get_fractal_dimension_1d(xs, ys, n_points=4096):
     def count_boxes_1d(xs, ys, k, k_max):
         range_y_max = ys.max() - ys.min()
-        indexes_x = np.arange(0, len(xs), 2**k)
-        ranges_y = np.linspace(0, range_y_max, 2**(k_max - k) + 1) + ys.min()
+        indexes_x = np.arange(0, len(xs), 2 ** k)
+        ranges_y = np.linspace(0, range_y_max, 2 ** (k_max - k) + 1) + ys.min()
         S = []
         # Optimization: we check for all the ys if they are in some y-range
         # at the same time, and then we collapse the result into boxes
         # (yeah, I feel proud about this trick)
         for j in range(len(ranges_y) - 1):
-            r = (ys >= ranges_y[j]) & (ys <= ranges_y[j+1])
+            r = (ys >= ranges_y[j]) & (ys <= ranges_y[j + 1])
             S.append(np.add.reduceat(r, indexes_x))
         boxes = np.vstack(S)
         # print(boxes) # With this you can see the formation of the plot!
@@ -92,14 +97,15 @@ def get_fractal_dimension_1d(xs, ys, n_points=4096):
 
     k_max = int(np.floor(np.log2(n_points)))
     ks = np.arange(k_max, 1, -1)
-    sizes = 2**ks
+    sizes = 2 ** ks
 
     counts = []
     for k in ks:
         counts.append(count_boxes_1d(xs_new, ys_new, k, k_max))
 
-    coeffs = np.polyfit(np.log(1/sizes), np.log(counts), 1)
+    coeffs = np.polyfit(np.log(1 / sizes), np.log(counts), 1)
     return coeffs[0]
+
 
 def get_fractal_dimension_2d(img):
     """Computes the fractal dimension of a binary image. Adapted from
@@ -117,16 +123,18 @@ def get_fractal_dimension_2d(img):
     """
 
     # Only for 2d image
-    assert(len(img.shape) == 2)
+    assert len(img.shape) == 2
 
     # From https://github.com/rougier/numpy-100 (#87)
     def boxcount(img, k):
         S = np.add.reduceat(
             np.add.reduceat(img, np.arange(0, img.shape[0], k), axis=0),
-                               np.arange(0, img.shape[1], k), axis=1)
+            np.arange(0, img.shape[1], k),
+            axis=1,
+        )
 
         # We count non-empty (0) and non-full boxes (k*k)
-        return len(np.where((S > 0) & (S < k*k))[0])
+        return len(np.where((S > 0) & (S < k * k))[0])
 
     img = img.astype(bool)
 
@@ -137,7 +145,7 @@ def get_fractal_dimension_2d(img):
     n = int(np.floor(np.log2(p)))
 
     # Build successive box sizes (from 2**n down to 2**1)
-    sizes = 2**np.arange(n, 1, -1)
+    sizes = 2 ** np.arange(n, 1, -1)
 
     # Actual box counting with decreasing size
     counts = []
@@ -148,11 +156,12 @@ def get_fractal_dimension_2d(img):
     coeffs = np.polyfit(np.log(sizes), np.log(counts), 1)
     return -coeffs[0]
 
+
 def get_radial_dimension(cnt, moment=None, normalize=True):
     if moment is None:
         moment = cv2.moments(cnt)
-    cx = int(moment['m10']/moment['m00'])
-    cy = int(moment['m01']/moment['m00'])
+    cx = int(moment["m10"] / moment["m00"])
+    cy = int(moment["m01"] / moment["m00"])
 
     cnt_reshaped = cnt.reshape(len(cnt), 2)
     rd = np.linalg.norm(cnt_reshaped - [cx, cy], axis=1)
@@ -162,13 +171,13 @@ def get_radial_dimension(cnt, moment=None, normalize=True):
 
 
 def get_blobs_measurements(seg_img):
-    seg_inv = cv2.bitwise_not(seg_img)
-    contours, moments = get_contours_and_moments(seg_inv)
+    # seg_inv = cv2.bitwise_not(seg_img)
+    contours, moments = get_contours_and_moments(seg_img)
     merged = []
     for cnt, mnt in zip(contours, moments):
         current_dict = {
-            'x': int(mnt['m10']/mnt['m00']),
-            'y': int(mnt['m01']/mnt['m00'])
+            "x": int(mnt["m10"] / mnt["m00"]),
+            "y": int(mnt["m01"] / mnt["m00"]),
         }
         reg_ms = get_region_measurements(cnt)
         bry_ms = get_boundary_measurements(cnt)

@@ -75,3 +75,10 @@ def contour_to_image(cnt):
     img = np.zeros((bbox[3], bbox[2]), dtype="uint8")
     cv2.fillPoly(img, pts=[norm_cnt], color=255)
     return img
+
+
+def draw_centroids(img, centroids):
+    centroids_img = img.copy()
+    for centroid in centroids:
+        cv2.circle(centroids_img, tuple(centroid), 5, (0, 255, 0), -1)
+    return centroids_img

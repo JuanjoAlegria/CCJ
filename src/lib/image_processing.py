@@ -199,3 +199,11 @@ def skeleton_data(sk_img):
     pixel_graph, coordinates, degrees = skeleton_to_csgraph(sk_img)
     branch_data = summarize(Skeleton(sk_img))
     return pixel_graph, coordinates, degrees, branch_data
+
+
+def is_contour_in_border(cnt, height, width):
+    for coord in cnt:
+        x, y = coord[0]
+        if (x == 0) or (x == width - 1) or (y == 0) or (y == height - 1):
+            return True
+    return False
