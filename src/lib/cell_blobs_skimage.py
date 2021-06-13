@@ -9,7 +9,6 @@ from skimage.morphology import dilation, square
 
 
 def get_regionprops_df(seg_img, labeled_img):
-    seg_img = dilation(seg_img, square(3))
     blobs_at_borders = np.unique(
         np.array(
             [labeled_img[0], labeled_img[-1], labeled_img[:, 0], labeled_img[:, -1]]
@@ -67,22 +66,28 @@ def get_regionprops_df(seg_img, labeled_img):
         df_props.isna().any(axis=1) | df_props.isin([np.inf, -np.inf]).any(axis=1)
     ]
 
-    assert len(df_errors) == 0
+    # if len(df_errors) == 0:
+    #     print("error")
     return df_props
 
 
-def get_blobs_measurements(seg_img, return_img=False):
+def get_blobs_measurements(seg_img, return_img=False, do_dilation=True):
     """Computes the properties of each blob.
 
     The blobs at the border of the image are not taken into account.
 
     Args:
         seg_img (2-D np.array): Binary segmented image
+        return_img (boolean): True to return blobs image
+        dilation (boolean): True to perform dilation over the segmented image
 
     Returns:
         df_props (pd.DataFrame): Dataframe with the properties of each region
     """
     seg_inv = invert(seg_img)
+    if do_dilation:
+        seg_inv = dilation(seg_inv, square(3))
+
     labeled_img = label(seg_inv)
     df_props = get_regionprops_df(seg_inv, labeled_img)
 
