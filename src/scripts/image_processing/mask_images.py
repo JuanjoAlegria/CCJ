@@ -7,17 +7,23 @@ from ...lib import utils
 from ...lib import image_processing as iputils
 
 
-def main(imgs_dir, results_dir):
+def main(imgs_dir, results_dir, keep_previous):
     os.makedirs(results_dir, exist_ok=True)
-    for fullname in os.listdir(os.path.join(imgs_dir, "CCJ")):
+    for fullname in os.listdir(os.path.join(imgs_dir, "Segmented-CCJ")):
         if os.path.splitext(fullname)[1] != ".tif":
             continue
-        img_name = fullname[:-5]
-        print(f"Processed image {img_name}")
+
+        img_name = fullname[:-8]
+        img_path = os.path.join(results_dir, f"{img_name}.tif")
+
+        if keep_previous and os.path.exists(img_path):
+            print(f"Already processed {img_name}")
+            continue
+
         _, ccj_img, seg_img, _ = utils.load_images(imgs_dir, img_name)
         masked = iputils.get_mask(ccj_img, seg_img)
-        img_path = os.path.join(results_dir, f"{img_name}.tif")
         tifffile.imsave(img_path, masked)
+        print(f"Processed image {img_name}")
 
 
 if __name__ == "__main__":
@@ -36,5 +42,11 @@ if __name__ == "__main__":
         help="""Folder where the results will be stored""",
         required=True,
     )
+    PARSER.add_argument(
+        "--keep_previous",
+        type=bool,
+        help="""True to keep previous results, False to overwrite""",
+        default=True,
+    )
     FLAGS = PARSER.parse_args()
-    main(FLAGS.imgs_dir, FLAGS.results_dir)
+    main(FLAGS.imgs_dir, FLAGS.results_dir, FLAGS.keep_previous)
