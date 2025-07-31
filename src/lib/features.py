@@ -1,177 +1,457 @@
-import os
-import sys
-import cv2
+"""Module with functions to summarize the features of an image"""
+
 import numpy as np
-from scipy import ndimage as ndi
-from scipy.ndimage.filters import uniform_filter
-from skimage.segmentation import watershed
-from skimage.feature import peak_local_max
-from skimage.filters.rank import entropy
-from skimage.morphology import medial_axis
-from skan import skeleton_to_csgraph, _testdata, draw, Skeleton, summarize
+from scipy import stats
+from . import image_processing as iputils
 from . import centroids as centutils
-
-def mask_results(results, jbin_img): 
-    results_copy = results.copy()
-    results_copy[jbin_img == 0] = 0    
-    return results_copy
-
-def window_stdev(img, window_size):
-    X = img.astype(float)
-    c1 = uniform_filter(X, window_size, mode='reflect')
-    c2 = uniform_filter(X*X, window_size, mode='reflect')
-    variance = c2 - c1*c1
-    variance = np.where(variance < 0, 0, variance)
-    return np.sqrt(variance)
-
-def voronoi_approx_statistics(img, raw_values=False):
-    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    distance = ndi.distance_transform_edt(img_gray)
-    local_maxi = peak_local_max(-distance, indices=False, footprint=np.ones((3, 3)), labels=img_gray)
-    markers = ndi.label(local_maxi)[0]
-    labels = watershed(distance, markers, watershed_line=True)
-    mask = labels == 0
-    distance_skel = distance.copy()
-    distance_skel[~mask] = 0
-    non_zero = distance_skel[mask]
-    if raw_values:
-        return non_zero.mean(), non_zero.std(), distance_skel 
-    return non_zero.mean(), non_zero.std()
+from . import cell_blobs_skimage as blobsutils
 
 
-def medial_axis_stadistics(img, raw_values=False):
-    img_gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    skel, distance = medial_axis(img_gray, return_distance=True)
-    dist_on_skel = distance * skel
-    non_zero = dist_on_skel[np.where(dist_on_skel != 0)]
-    if raw_values:
-        return non_zero.mean(), non_zero.std(), dist_on_skel 
-    return non_zero.mean(), non_zero.std()
+def compute_entropy(raw_vector):
+    """Computes Shannon's entropy of a vector.
 
-def std_filter_statistics(img, jbin_img, raw_values=False):
-    filtered = window_stdev(img, window_size=7)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  
-    mask_filtered = mask_results(filtered, jbin_img)
-    non_zero = mask_filtered[np.where(mask_filtered != 0)]
-    if raw_values:
-        return non_zero.mean(), non_zero.std(), mask_filtered 
-    return non_zero.mean(), non_zero.std()
+    Args:
+        raw_vector (np.ndarray): Vector.
 
-def entropy_filter_statistics(img, jbin_img, raw_values=False):
-    filtered = entropy(img, np.ones((7,7)))
-    mask_filtered = mask_results(filtered, jbin_img)
-    non_zero = mask_filtered[np.where(mask_filtered != 0)]
-    if raw_values:
-        return non_zero.mean(), non_zero.std(), mask_filtered 
-    return non_zero.mean(), non_zero.std()
+    Returns:
+        float: Shannon's entropy.
+    """
 
-def get_skeleton_data(sk_img):
-    sk_img_gray = cv2.cvtColor(sk_img, cv2.COLOR_BGR2GRAY)
-    pixel_graph, coordinates, degrees = skeleton_to_csgraph(sk_img_gray)
-    branch_data = summarize(Skeleton(sk_img_gray))
-    return degrees, branch_data
+    _, counts = np.unique(raw_vector, return_counts=True)
+    counts = counts / counts.sum()
+    entropy = -np.sum(counts * np.log2(counts))
+    return entropy
 
 
-def get_area_features(nuclei_img, jbin_img):
-    centroids = centutils.get_nuclei_centroids(nuclei_img)
-    centroids = centutils.clean_centroids(centroids, jbin_img)
-    centroids, moments = centutils.get_moments_cells(centroids, jbin_img)
-    
+def compute_entropy_kde(vector, n_points=100):
+    """Computes Shannon's entropy of a vector using a Kernel Density Estimator
+    istead of the count of the elements.
+
+    Args:
+        raw_vector (np.ndarray): Vector.
+
+    Returns:
+        float: Shannon's entropy.
+    """
+    try:
+        kernel = stats.gaussian_kde(vector, bw_method="scott")
+        X = np.linspace(min(vector), max(vector), n_points)
+        y = kernel(X)
+        dx = X[1] - X[0]
+        return -np.sum(y * np.log2(y) * dx)
+    except Exception as e:
+        print(e, vector)
+        return -1
+
+
+def compute_mode(vector):
+    """Computes the mode of a vector.
+
+    If the vector is formed only by integers, then we compute the mode just
+    counting the numbers. Otherwise (the vector has floating point numbers), we
+    compute the mode using an histogram.
+
+    Args:
+        vector (np.ndarray): Vector.
+
+    Returns:
+        int | float: mode.
+    """
+    if issubclass(vector.dtype.type, np.integer):
+        return stats.mode(vector).mode[0]
+    else:
+        hist, bin_edges = np.histogram(vector, bins="auto")
+        idx_max = hist.argmax()
+        mode = (bin_edges[idx_max] + bin_edges[idx_max + 1]) / 2
+        return mode
+
+
+def get_summary_statistics(vector):
+    """Utilitary function that computes the mean, std, median, median
+    absolute deviation (mad), entropy and mode for a vector"
+
+    Args:
+        vector (np.ndarray, ndim=1): vector
+
+    Returns:
+        dict[str->float]: Dictionary with the computed statistics, with the keys
+        'mean', 'std', 'median', 'mad' and 'entropy'.
+    """
+    if len(vector) == 0:
+        mean = std = median = mad = entropy = mode = 0
+
+    else:
+        mean = vector.mean()
+        std = vector.std()
+        median = np.median(vector)
+        mad = stats.median_absolute_deviation(vector, scale=1, axis=None)
+        # entropy = compute_entropy_kde(vector)
+        mode = compute_mode(vector)
+
+    statistics = {
+        "mean": mean,
+        "std": std,
+        "median": median,
+        "mad": mad,
+        # "entropy": entropy,
+        "mode": mode,
+    }
+    return statistics
+
+
+def get_area_features(seg_img):
+    """Computes the area features of an image.
+
+    The features are:
+
+        - cell_area_ratio: Sum of cell areas divided by the total area of the
+            image.
+        - white_area_ratio: Sum of white pixels in the segmented image divided
+            by the total area of the image.
+
+    Args:
+        seg_img (np.ndarray): Segmented cell cell junction image.
+        centroids_data (pd.core.frame.DataFrame): Dataframe with the information
+            of the centroids and moments.
+
+    Returns:
+        dict: Dictionary with the area features.
+    """
     ret = {}
-    
-    cell_area = 0
-    total_area = jbin_img.shape[0] * jbin_img.shape[1]
-    
-    for m in moments:
-        cell_area += m['m00']
-    
-    # white_area = len(jbin_img[np.where(jbin_img != 0)]) 
-    white_area = len(jbin_img[np.all(jbin_img == [255,255,255], axis=-1)]) 
-    ret['cell_area_ratio'] = cell_area / total_area
-    ret['white_area_ratio'] = white_area / total_area
-    
+    # cell_area = centroids_data["m00"].sum()
+    # ret["cell_area_ratio"] = cell_area / total_area
+    total_area = seg_img.shape[0] * seg_img.shape[1]
+    white_area = len(seg_img[seg_img == 255])
+    ret["white_area_ratio"] = white_area / total_area
     return ret
 
 
-def get_skeleton_features(sk_img, raw_data=''):
-    degrees, branch_data = get_skeleton_data(sk_img)
-    
+def get_blobs_features(blobs_data, min_area=900):
+    """Computes the blobs features of an image.
+
+    For each feature we compute the mean, standard deviation, median and
+    median absolute deviation. Those features types are:
+        area: Area of the blob.
+        perimeter: Perimeter of the blob.
+        hull_area: Area of the convex hull.
+        hull_perimeter: Perimeter of the convex hull.
+        compactness: Ratio of the area of an object to the area of a circle
+            with the same perimeter (4*pi*area / perimeter**2).
+        solidity: Measures the density of an object (area / hull_area).
+        convexity: Relative amount that an object differs from a convex object
+            (hull_perimeter / perimeter).
+        major_axis_length: Length of the major axis.
+        minor_axis_length: Length of the minir axis.
+        elongation: Ratio between the length of the axes
+            (minor_axis_length / major_axis_length).
+        fractal_dimension: Fractal dimension of the boundary of the blob,
+            computed using the box-count estimator.
+        entropy: Entropy of the boundary of the blob.
+
+    Args:
+        blobs_data (pd.core.frame.DataFrame): Dataframe with the information
+            of the blobs.
+
+    Returns:
+        dict: Dictionary with the area features.
+    """
     ret = {}
-    
-    # End-to-end
-    e2e_data = branch_data[branch_data['branch-type'] == 0]
-    ret['e2e_n'] = len(e2e_data)
-    ret['e2e_distance_mean'] = e2e_data['branch-distance'].mean()
-    ret['e2e_distance_std'] = e2e_data['branch-distance'].std()
-    ret['e2e_eu_distance_mean'] = e2e_data['euclidean-distance'].mean()
-    ret['e2e_eu_distance_std'] = e2e_data['euclidean-distance'].std()
-    ret['e2e_distance_ratio_mean'] = (e2e_data['euclidean-distance'] / e2e_data['branch-distance']).mean()
-    ret['e2e_distance_ratio_std'] = (e2e_data['euclidean-distance'] / e2e_data['branch-distance']).std()
-    
-    # Junction-to-end
-    j2e_data = branch_data[branch_data['branch-type'] == 1]
-    ret['j2e_n'] = len(j2e_data)
-    ret['j2e_distance_mean'] = j2e_data['branch-distance'].mean()
-    ret['j2e_distance_std'] = j2e_data['branch-distance'].std()
-    ret['j2e_eu_distance_mean'] = j2e_data['euclidean-distance'].mean()
-    ret['j2e_eu_distance_std'] = j2e_data['euclidean-distance'].std()
-    ret['j2e_distance_ratio_mean'] = (j2e_data['euclidean-distance'] / j2e_data['branch-distance']).mean()
-    ret['j2e_distance_ratio_std'] = (j2e_data['euclidean-distance'] / j2e_data['branch-distance']).std()
-    
-    # Junction-to-junction
-    j2j_data = branch_data[branch_data['branch-type'] == 2]
-    ret['j2j_n'] = len(j2j_data)
-    ret['j2j_distance_mean'] = j2j_data['branch-distance'].mean()
-    ret['j2j_distance_std'] = j2j_data['branch-distance'].std()
-    ret['j2j_eu_distance_mean'] = j2j_data['euclidean-distance'].mean()
-    ret['j2j_eu_distance_std'] = j2j_data['euclidean-distance'].std()
-    ret['j2j_distance_ratio_mean'] = (j2j_data['euclidean-distance'] / j2j_data['branch-distance']).mean()
-    ret['j2j_distance_ratio_std'] = (j2j_data['euclidean-distance'] / j2j_data['branch-distance']).std()
+    features_names = [
+        "area",
+        "perimeter",
+        "hull_area",
+        "hull_perimeter",
+        "compactness",
+        "solidity",
+        "convexity",
+        "major_axis_length",
+        "minor_axis_length",
+        "elongation"
+        # "fractal_dimension",
+        # "entropy",
+    ]
 
-    # Nodes
-    nodes = degrees[np.where(degrees > 2)]
-    ret['nodes_n'] = len(nodes)
-    ret['nodes_max'] = nodes.max()
-    ret['nodes_mean'] = nodes.mean()
-    ret['nodes_std'] = nodes.std()
-    
+    blobs_data_no_borders = blobs_data[~blobs_data["is_at_border"]]
+    dfs = [
+        {"suffix": "", "df": blobs_data},
+        {"suffix": "_borderless", "df": blobs_data_no_borders},
+    ]
+
+    if min_area is not None:
+        blobs_data_no_small = blobs_data[blobs_data["area"] > min_area]
+        dfs.append({"suffix": f"_>{min_area}", "df": blobs_data_no_small})
+
+    for element in dfs:
+        data, suffix = element["df"], element["suffix"]
+        for ft_name in features_names:
+            column = data[ft_name]
+            sumstats = get_summary_statistics(column)
+            ret.update(
+                {f"{ft_name}{suffix}_{key}": value for key, value in sumstats.items()}
+            )
+        ret[f"blobs{suffix}_n"] = len(data)
     return ret
 
-def get_branch_thickness_features(jbin_img):
+
+def get_skeleton_features(skeleton_data):
+    """Computes the skeleton features of an image.
+
+    The features are divided according to the type of branch, as follows:
+
+    Endpoint-to-endpoint branches:
+        - e2e_n: Number of branches of this type.
+        - e2e_distance_mean: Mean of the natural distance of the branches of
+            this type. This distances are measured as the sum of the pixels
+            along the branch.
+        - e2e_distance_std: Standard deviation of the previous measure.
+        - e2e_eu_distance_mean: Mean of the Euclidean distance of the branches
+            of this type. This distances are measured as the Euclidean distance
+            between the starting point and the ending point.
+        - e2e_eu_distance_std: Standard deviation of the previous measure.
+        - e2e_distance_ratio_mean: For each branch, we compute the Euclidean
+            distance divided by the natural distance, and then we compute the
+             mean of these values.
+        - e2e_distance_ratio_std: Standard deviation of the previous measure.
+
+    Junction-to-endpoint:
+        - j2e_n
+        - j2e_distance_mean
+        - j2e_distance_std
+        - j2e_eu_distance_mean
+        - j2e_eu_distance_std
+        - j2e_distance_ratio_mean
+        - j2e_distance_ratio_std
+
+    Junction-to-junction:
+        - j2j_n
+        - j2j_distance_mean
+        - j2j_distance_std
+        - j2j_eu_distance_mean
+        - j2j_eu_distance_std
+        - j2j_distance_ratio_mean
+        - j2j_distance_ratio_std
+
+    Args:
+        skeleton_data (pd.core.frame.DataFrame): Dataframe with the information
+            of the skeleton.
+
+    Returns:
+        dict: Dictionary with the skeleton features.
+    """
     ret = {}
-    ma_mean, ma_std = medial_axis_stadistics(jbin_img)
-    va_mean, va_std = voronoi_approx_statistics(jbin_img)
+    branches_types = {
+        "e2e": 0,  # End-to-end
+        "j2e": 1,  # Junction-to-end
+        "j2j": 2,  # Junction-to-junction
+    }
 
-    ret['medial_axis_mean'] = ma_mean
-    ret['medial_axis_std'] = ma_std
-    ret['voronoi_approx_mean'] = va_mean
-    ret['voronoi_approx_std'] = va_std
+    for b_suffix, b_value in branches_types.items():
+        data = skeleton_data[skeleton_data["branch-type"] == b_value]
+
+        distances_types = {
+            "distance": data["branch-distance"],
+            "eu_distance": data["euclidean-distance"],
+            "distance_ratio": data["euclidean-distance"] / data["branch-distance"],
+        }
+
+        ret[f"{b_suffix}_n"] = len(data)
+
+        for dist_type, dist_data in distances_types.items():
+            sumstats = get_summary_statistics(dist_data)
+            ret.update(
+                {
+                    f"{b_suffix}_{dist_type}_{key}": value
+                    for key, value in sumstats.items()
+                }
+            )
+    return ret
+
+
+def get_nodes_degrees_features(degrees_img):
+    """Computes the nodes degrees features of an image.
+
+    The skeleton can be thinked of as a graph, and, in this case, a node is
+    defined as a point whose degree is greater than two. So, the computed
+    features are:
+
+        - nodes_n: Number of nodes in the graph.
+        - nodes_max: Maximum degree in the graph
+        - nodes_mean: Mean of the degrees in the graph
+        - nodes_std: Standard deviation of the previous measure
+
+    Args:
+        degrees_img (np.ndarray): Image of the skeleton, with each skeleton
+            pixel containing the number of neighbouring pixel.
+
+    Returns:
+        dict: Dictionary with the nodes degrees features.
+    """
+    ret = {}
+    nodes = degrees_img[np.where(degrees_img > 2)]
+    ret["nodes_n"] = len(nodes)
+    ret["nodes_max"] = nodes.max()
+    sumstats = get_summary_statistics(nodes)
+    ret.update({f"nodes_{key}": value for key, value in sumstats.items()})
+    return ret
+
+
+# TODO change name
+def get_statistics_features(processed_img, feature_name):
+    """Computes the mean and standard deviation for a generic processed image,
+    where the only values that should be considered are the non-zero pixels.
+
+    It is used to compute the branch thickness and texture features. In detail:
+
+    Branch thickness features:
+        - branch_thickness_medial_axis_mean: For each point in the skeleton, we
+            compute its width in the corresponding segmented image, using the
+            medial axis algorithm. And then we compute the mean of those values
+            all over the image.
+        - branch_thickness_medial_axis_std: Standard deviation of the previous
+            measure.
+        - branch_thickness_voronoi_mean: the same idea, but using an
+            approximation of the Generalized Voronoi algorithm
+        - branch_thickness_voronoi_mean_std: Standard deviation of the previous
+            measure.
+
+    Texture features:
+        - texture_std_filter_mean: for each pixel in the cell-cell junction, we
+            compute the standard deviation of the surrounding pixels. And then
+            we compute the mean of those values all over the image.
+        - texture_std_filter_std: Standard deviation of the previous measure.
+        - texture_entropy_filter_mean: The same idea, but measuring the entropy
+            instead of the standard deviation.
+        - texture_entropy_filter_std: Standard deviation of the previous
+            measure.
+
+    Args:
+        processed_img (np.ndarray): Processed image.
+        feature_name (string): Name of the feature we are computing.
+
+    Returns:
+        dict: Dictionary with the mean and std of the feature we are computing.
+    """
+    ret = {}
+    non_zero = processed_img[np.where(processed_img != 0)]
+    sumstats = get_summary_statistics(non_zero)
+    ret.update({f"{feature_name}_{key}": value for key, value in sumstats.items()})
+
+    # for st_name in ["mean", "std", "median", "mad", "entropy"]:
+    #     ret[f"{feature_name}_{st_name}"] = dict_statistics[st_name]
+    return ret
+
+
+def get_global_dispersion_features(ccj_img, seg_img):
+    ret = {}
+    masked = iputils.get_mask(ccj_img, seg_img)
+    ret["global_entropy_discrete"] = iputils.global_entropy_discrete(masked)
+    ret["global_entropy_kde"] = iputils.global_entropy_kde(masked)
+    ret["global_coeff_var"] = iputils.coefficient_variation(masked)
+    return ret
+
+
+def get_nuclei_blobs_features(nuclei_img, blobs_data, min_area=1000, max_area=70000):
+    ret = {}
+    nuclei_centroids = centutils.remove_close_centroids(
+        centutils.get_nuclei_centroids(nuclei_img), radio=50
+    )
+
+    h, w = nuclei_img.shape[:2]
+    index_small = blobs_data["area"] <= min_area
+    index_big = blobs_data["area"] >= max_area
+    blobs_data_no_small = blobs_data[~index_small]
+    blobs_data_small = blobs_data[index_small]
+    blobs_data_big = blobs_data[index_big]
+
+    total_area_small = blobs_data_small["area"].sum()
+    total_area_big = blobs_data_big["area"].sum()
+
+    n_nuclei = len(nuclei_centroids)
+    n_blobs = len(blobs_data)
+    n_blobs_no_small = len(blobs_data_no_small)
+
+    percentage_big = total_area_big / (h * w)
+    percentage_small = total_area_small / (h * w)
+
+    ret["nuclei_n"] = n_nuclei
+    ret["nuclei_blobs_ratio"] = n_blobs_no_small / n_nuclei
+    ret[f"blobs_<{min_area}_ratio"] = 1 - n_blobs_no_small / n_blobs
+    ret[f"total_area_blobs<{min_area}"] = total_area_small
+    ret[f"total_area_blobs>{max_area}"] = total_area_big
+    ret[f"percentage_area_blobs<{min_area}"] = percentage_small
+    ret[f"percentage_area_blobs>{max_area}"] = percentage_big
 
     return ret
 
-def get_texture_features(original_img, jbin_img):
-    ret = {} 
-    original_img = cv2.cvtColor(original_img, cv2.COLOR_BGR2GRAY)
-    jbin_img = cv2.cvtColor(jbin_img, cv2.COLOR_BGR2GRAY)
-    sf_mean, sf_std = std_filter_statistics(original_img, jbin_img)
-    ef_mean, ef_std = entropy_filter_statistics(original_img, jbin_img)
 
-    ret['std_filter_mean'] = sf_mean
-    ret['std_filter_std'] = sf_std
-    ret['entropy_filter_mean'] = ef_mean
-    ret['entropy_filter_std'] = ef_std
+def get_features(
+    ccj_img,
+    seg_img,
+    nuclei_img,
+    blobs_data,
+    skeleton_data,
+    degrees_img,
+    bt_medial_axis_img,
+    bt_voronoi_img,
+    tx_std_img,
+    tx_entropy_img,
+):
+    """Utilitary function that gets all the features: area, skeleton, nodes
+    degrees, branch thickness and texture features.
 
-    return ret
+    Args:
+        ccj_img (np.ndarray): Original cell cell junction image.
+        seg_img (np.ndarray): Segmented cell cell junction image.
+        nuclei_img (np.ndarray): Nuclei image.
+        centroids_data (pd.core.frame.DataFrame): Dataframe with the information
+            of the centroids and moments.
+        blobs_data (pd.core.frame.DataFrame): Dataframe with the information
+            of the blobs.
+        skeleton_data (pd.core.frame.DataFrame): Dataframe with the information
+            of the skeleton.
+        degrees_img (np.ndarray): Image of the skeleton, with each skeleton
+            pixel containing the number of neighbouring pixel.
+        bt_medial_axis_img (np.ndarray): Processed image with the branch
+            thickness of each point of the skeleton, using the medial axis
+            algorithm.
+        bt_voronoi_img (np.ndarray): Processed image with the branch
+            thickness of each point of the skeleton, using an approximation of
+            the generalized Voronoi algorithm.
+        tx_std_img (np.ndarray): Processed image with the texture of each point
+            of the cell cell junction, using a standard deviation filter.
+        tx_entropy_img (np.ndarray): Processed image with the texture of each
+            point of the cell cell junction, using an entropy filter.
 
-def get_features(original_img, nuclei_img, jbin_img, jsk_img):
+    Returns:
+        dict: Dictionary with all the features.
+    """
+
     features = {}
-    area_ft = get_area_features(nuclei_img, jbin_img)
-    sk_ft = get_skeleton_features(jsk_img)
-    bt_ft = get_branch_thickness_features(jbin_img)
-    tx_ft = get_texture_features(original_img, jbin_img)
 
-    features.update(area_ft)
-    features.update(sk_ft)
-    features.update(bt_ft)
-    features.update(tx_ft)
+    area_fts = get_area_features(seg_img)
+    blobs_fts = get_blobs_features(blobs_data)
+    sk_fts = get_skeleton_features(skeleton_data)
+    dg_fts = get_nodes_degrees_features(degrees_img)
+    gd_fts = get_global_dispersion_features(ccj_img, seg_img)
+    nb_fts = get_nuclei_blobs_features(
+        nuclei_img, blobs_data, min_area=1000, max_area=70000
+    )
 
+    features.update(area_fts)
+    features.update(blobs_fts)
+    features.update(sk_fts)
+    features.update(dg_fts)
+    features.update(nb_fts)
+
+    map_names_imgs = {
+        "branch_thickness_medial_axis": bt_medial_axis_img,
+        "branch_thickness_voronoi": bt_voronoi_img,
+        "texture_std_filter": tx_std_img,
+        "texture_entropy_filter": tx_entropy_img,
+    }
+
+    for ft_name, img in map_names_imgs.items():
+        features.update(get_statistics_features(img, ft_name))
+
+    features.update(gd_fts)
     return features
