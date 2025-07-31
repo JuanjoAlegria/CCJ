@@ -7,24 +7,36 @@ from ..lib import features as ftutils
 from ..lib import utils
 
 
-def main(raw_dir, interim_dir, save_dir):
+def main(raw_dir, interim_dir, save_dir, prev_df_path):
     ft_dict = {}
 
     raw_imgs_dir = os.path.join(raw_dir, "images")
 
-    for fullname in os.listdir(os.path.join(raw_imgs_dir, "CCJ")):
+    if prev_df_path is not None:
+        prev_df = pd.read_csv(prev_df_path, index_col=0).drop(
+            columns=["protein", "plate", "stimulus"], errors="ignore"
+        )
+    else:
+        prev_df = None
+
+    for fullname in os.listdir(os.path.join(raw_imgs_dir, "Segmented-CCJ")):
         if os.path.splitext(fullname)[1] != ".tif":
             continue
-        img_name = fullname[:-5]
+        img_name = fullname[:-8]
         print("###################################################")
+        if prev_df is not None and img_name in prev_df.index:
+            print(f"Already processed {img_name}")
+            continue
+
         print(img_name)
 
         # We load the segmented image in this way, because there are some
         # segmented images whose size differs from the ccj_img size,
         # so that condition must be checked and fixed before using the image.
 
-        nuclei_img, ccj_img, seg_img, _ = utils.load_images(raw_imgs_dir, img_name)
-        nuclei_img = utils.convert_16_gray_to_8_bgr(nuclei_img)
+        _, ccj_img, seg_img, _ = utils.load_images(raw_imgs_dir, img_name)
+        broken_img = utils.load_broken(raw_imgs_dir, img_name)
+        # nuclei_img = utils.convert_16_gray_to_8_bgr(nuclei_img)
 
         template_img_path = os.path.join(
             interim_dir, "images", "{ft_name}", f"{img_name}.tif"
@@ -63,7 +75,7 @@ def main(raw_dir, interim_dir, save_dir):
         features = ftutils.get_features(
             ccj_img,
             seg_img,
-            nuclei_img,
+            broken_img,
             blobs_data,
             skeleton_data,
             degrees_img,
@@ -74,7 +86,15 @@ def main(raw_dir, interim_dir, save_dir):
         )
         ft_dict[img_name] = features
 
-    df = pd.DataFrame.from_dict(ft_dict, orient="index")
+    if len(ft_dict) == 0:
+        print("###################################################")
+        print("No new features were computed")
+        return
+
+    new_df = pd.DataFrame.from_dict(ft_dict, orient="index")
+    df = pd.concat([prev_df, new_df])
+    for loc, col_name in enumerate(["protein", "plate", "stimulus"]):
+        df.insert(loc, col_name, df.index.str.split("_").str[loc])
     df.to_csv(os.path.join(save_dir, f"{date.today()}_features.csv"))
 
 
@@ -103,5 +123,12 @@ if __name__ == "__main__":
         will be named YYYY_mm_dd_features.csv""",
         required=True,
     )
+    PARSER.add_argument(
+        "--prev_df_path",
+        type=str,
+        help="""Path to a previous dataframe. Features will be computed only for
+        images that are not included in that dataframe.""",
+        default=None,
+    )
     FLAGS = PARSER.parse_args()
-    main(FLAGS.raw_dir, FLAGS.interim_dir, FLAGS.save_dir)
+    main(FLAGS.raw_dir, FLAGS.interim_dir, FLAGS.save_dir, FLAGS.prev_df_path)

@@ -84,6 +84,9 @@ blobs_data:
 		--imgs_dir data/raw/images \
 		--results_base_dir data/interim
 
+
+#centroids_moments
+
 get_features: \
 mask_images \
 branch_thickness_voronoi \
@@ -91,12 +94,12 @@ branch_thickness_medial_axis \
 texture_entropy_filter \
 texture_std_filter \
 skeleton_data \
-centroids_moments \
 blobs_data
 	$(python_interpreter) -m src.scripts.get_features \
 		--raw_dir data/raw \
 		--interim_dir data/interim \
-		--save_dir data/processed
+		--save_dir data/processed \
+		--prev_df_path data/processed/2021-05-25_features.csv
 
 clear_data:
 	rm -r data/interim ||:

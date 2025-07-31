@@ -43,8 +43,6 @@ def load_images(imgs_dir, img_name):
     seg_img = cv2.imread(seg_path, cv2.IMREAD_UNCHANGED)
     sk_img = cv2.imread(sk_path, cv2.IMREAD_UNCHANGED)
 
-    assert nuclei_img.shape == ccj_img.shape
-
     if seg_img.shape > ccj_img.shape:
         seg_img = crop_image(seg_img, ccj_img.shape[:2])
 
@@ -52,6 +50,36 @@ def load_images(imgs_dir, img_name):
         sk_img = crop_image(sk_img, ccj_img.shape[:2])
 
     return nuclei_img, ccj_img, seg_img, sk_img
+
+
+def load_broken(imgs_dir, img_name):
+    """Load broken image.
+
+    Args:
+        imgs_dir (str): Base folder of the images.
+        img_name (str): Name of the image.
+
+    Returns:
+        np.ndarray(n,n,3): broken_img
+    """
+    ccj_path = os.path.join(imgs_dir, f"CCJ/{img_name}j.tif")
+    broken_path = os.path.join(imgs_dir, f"Broken/{img_name}j.tif")
+
+    if not os.path.exists(broken_path):
+        return None
+
+    ccj_img = cv2.imread(ccj_path, cv2.IMREAD_UNCHANGED)
+    broken_img = cv2.imread(broken_path, cv2.IMREAD_UNCHANGED)
+    unique_values = np.unique(broken_img)
+    assert len(unique_values) == 2
+
+    thresh = int(np.unique(broken_img).mean())
+    _, broken_img_bin = cv2.threshold(broken_img, thresh, 255, cv2.THRESH_BINARY)
+
+    if broken_img_bin.shape > ccj_img.shape:
+        broken_img_bin = crop_image(broken_img_bin, ccj_img.shape[:2])
+
+    return broken_img_bin
 
 
 def resize_up_to(img, min_size):

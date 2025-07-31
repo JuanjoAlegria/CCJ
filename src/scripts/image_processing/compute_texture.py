@@ -7,7 +7,7 @@ from ...lib import utils
 from ...lib import image_processing as iputils
 
 
-def main(imgs_dir, results_base_dir, algorithm):
+def main(imgs_dir, results_base_dir, algorithm, keep_previous):
     results_dir = os.path.join(
         results_base_dir, "images", f"texture_{algorithm}_filter"
     )
@@ -16,13 +16,19 @@ def main(imgs_dir, results_base_dir, algorithm):
         "std": iputils.texture_std_filter,
         "entropy": iputils.texture_entropy_filter,
     }
-    for fullname in os.listdir(os.path.join(imgs_dir, "CCJ")):
+    for fullname in os.listdir(os.path.join(imgs_dir, "Segmented-CCJ")):
         if os.path.splitext(fullname)[1] != ".tif":
             continue
-        img_name = fullname[:-5]
+
+        img_name = fullname[:-8]
+        processed_path = os.path.join(results_dir, f"{img_name}.tif")
+
+        if keep_previous and os.path.exists(processed_path):
+            print(f"Already processed {img_name}")
+            continue
+
         _, ccj_img, seg_img, _ = utils.load_images(imgs_dir, img_name)
         processed = functions_map[algorithm](ccj_img, seg_img)
-        processed_path = os.path.join(results_dir, f"{img_name}.tif")
         processed_32 = processed.astype("float32")
         tifffile.imsave(processed_path, processed_32)
         print(f"Processed image {img_name}")
@@ -52,5 +58,11 @@ if __name__ == "__main__":
         choices=["std", "entropy"],
         required=True,
     )
+    PARSER.add_argument(
+        "--keep_previous",
+        type=bool,
+        help="""True to keep previous results, False to overwrite""",
+        default=True,
+    )
     FLAGS = PARSER.parse_args()
-    main(FLAGS.imgs_dir, FLAGS.results_base_dir, FLAGS.algorithm)
+    main(FLAGS.imgs_dir, FLAGS.results_base_dir, FLAGS.algorithm, FLAGS.keep_previous)

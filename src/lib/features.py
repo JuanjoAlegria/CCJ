@@ -288,6 +288,11 @@ def get_nodes_degrees_features(degrees_img):
     """
     ret = {}
     nodes = degrees_img[np.where(degrees_img > 2)]
+    if len(nodes) == 0:
+        ret["nodes_n"] = 0
+        ret["nodes_max"] = 0
+        return ret
+
     ret["nodes_n"] = len(nodes)
     ret["nodes_max"] = nodes.max()
     sumstats = get_summary_statistics(nodes)
@@ -335,9 +340,6 @@ def get_statistics_features(processed_img, feature_name):
     non_zero = processed_img[np.where(processed_img != 0)]
     sumstats = get_summary_statistics(non_zero)
     ret.update({f"{feature_name}_{key}": value for key, value in sumstats.items()})
-
-    # for st_name in ["mean", "std", "median", "mad", "entropy"]:
-    #     ret[f"{feature_name}_{st_name}"] = dict_statistics[st_name]
     return ret
 
 
@@ -350,13 +352,15 @@ def get_global_dispersion_features(ccj_img, seg_img):
     return ret
 
 
-def get_nuclei_blobs_features(nuclei_img, blobs_data, min_area=1000, max_area=70000):
+def get_nuclei_blobs_features(
+    blobs_data, total_area=2359296, min_area=2500, max_area=70000
+):
     ret = {}
-    nuclei_centroids = centutils.remove_close_centroids(
-        centutils.get_nuclei_centroids(nuclei_img), radio=50
-    )
+    # nuclei_centroids = centutils.remove_close_centroids(
+    #     centutils.get_nuclei_centroids(nuclei_img), radio=50
+    # )
 
-    h, w = nuclei_img.shape[:2]
+    # h, w = nuclei_img.shape[:2]
     index_small = blobs_data["area"] <= min_area
     index_big = blobs_data["area"] >= max_area
     blobs_data_no_small = blobs_data[~index_small]
@@ -366,15 +370,15 @@ def get_nuclei_blobs_features(nuclei_img, blobs_data, min_area=1000, max_area=70
     total_area_small = blobs_data_small["area"].sum()
     total_area_big = blobs_data_big["area"].sum()
 
-    n_nuclei = len(nuclei_centroids)
+    # n_nuclei = len(nuclei_centroids)
     n_blobs = len(blobs_data)
     n_blobs_no_small = len(blobs_data_no_small)
 
-    percentage_big = total_area_big / (h * w)
-    percentage_small = total_area_small / (h * w)
+    percentage_big = total_area_big / total_area
+    percentage_small = total_area_small / total_area
 
-    ret["nuclei_n"] = n_nuclei
-    ret["nuclei_blobs_ratio"] = n_blobs_no_small / n_nuclei
+    # ret["nuclei_n"] = n_nuclei
+    # ret["nuclei_blobs_ratio"] = n_blobs_no_small / n_nuclei
     ret[f"blobs_<{min_area}_ratio"] = 1 - n_blobs_no_small / n_blobs
     ret[f"total_area_blobs<{min_area}"] = total_area_small
     ret[f"total_area_blobs>{max_area}"] = total_area_big
@@ -384,10 +388,34 @@ def get_nuclei_blobs_features(nuclei_img, blobs_data, min_area=1000, max_area=70
     return ret
 
 
+def get_broken_features(broken_img, min_threshold=900):
+    if broken_img is None:
+        return {
+            "area_broken": 0,
+            "proportion_broken": 0,
+            f"area_broken>{min_threshold}": 0,
+            f"proportion_broken>{min_threshold}": 0,
+        }
+    ret = {}
+    df_broken = blobsutils.get_blobs_measurements(
+        broken_img, return_img=False, do_dilation=True
+    )
+    area_total = broken_img.shape[0] * broken_img.shape[1]
+    area_broken = df_broken["area"].sum()
+    area_broken_no_small = df_broken.loc[
+        df_broken["area"] > min_threshold, "area"
+    ].sum()
+    ret["area_broken"] = area_broken
+    ret["proportion_broken"] = area_broken / area_total
+    ret[f"area_broken>{min_threshold}"] = area_broken_no_small
+    ret[f"proportion_broken>{min_threshold}"] = area_broken_no_small / area_total
+    return ret
+
+
 def get_features(
     ccj_img,
     seg_img,
-    nuclei_img,
+    broken_img,
     blobs_data,
     skeleton_data,
     degrees_img,
@@ -402,7 +430,7 @@ def get_features(
     Args:
         ccj_img (np.ndarray): Original cell cell junction image.
         seg_img (np.ndarray): Segmented cell cell junction image.
-        nuclei_img (np.ndarray): Nuclei image.
+        broken_img (np.ndarray): Broken image.
         centroids_data (pd.core.frame.DataFrame): Dataframe with the information
             of the centroids and moments.
         blobs_data (pd.core.frame.DataFrame): Dataframe with the information
@@ -427,6 +455,7 @@ def get_features(
     """
 
     features = {}
+    img_area = ccj_img.shape[0] * ccj_img.shape[1]
 
     area_fts = get_area_features(seg_img)
     blobs_fts = get_blobs_features(blobs_data)
@@ -434,14 +463,17 @@ def get_features(
     dg_fts = get_nodes_degrees_features(degrees_img)
     gd_fts = get_global_dispersion_features(ccj_img, seg_img)
     nb_fts = get_nuclei_blobs_features(
-        nuclei_img, blobs_data, min_area=1000, max_area=70000
+        blobs_data, total_area=img_area, min_area=2500, max_area=70000
     )
+    bk_fts = get_broken_features(broken_img)
 
     features.update(area_fts)
     features.update(blobs_fts)
     features.update(sk_fts)
     features.update(dg_fts)
     features.update(nb_fts)
+    features.update(gd_fts)
+    features.update(bk_fts)
 
     map_names_imgs = {
         "branch_thickness_medial_axis": bt_medial_axis_img,
@@ -453,5 +485,4 @@ def get_features(
     for ft_name, img in map_names_imgs.items():
         features.update(get_statistics_features(img, ft_name))
 
-    features.update(gd_fts)
     return features
